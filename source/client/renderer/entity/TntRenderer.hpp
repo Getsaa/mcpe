@@ -13,10 +13,19 @@
 
 class TntRenderer : public EntityRenderer
 {
+protected:
+	class Materials
+	{
+	public:
+		mce::MaterialPtr primed_tnt;
+
+		Materials();
+	};
+
 public:
 	TntRenderer();
 
-	void render(Entity*, float, float, float, float, float) override;
+	void render(const Entity& entity, const Vec3& pos, float rot, float a) override;
 
 public:
 	TileRenderer m_tileRenderer;

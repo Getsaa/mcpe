@@ -7,6 +7,7 @@
  ********************************************************************/
 
 #include "RolledSelectionList.hpp"
+#include "renderer/RenderContextImmediate.hpp"
 
 static float g_RolledSelectionListUnk, g_RolledSelectionListUnk2;
 
@@ -90,93 +91,20 @@ void RolledSelectionList::tick()
 	field_34 = field_30 - field_38;
 }
 
-void RolledSelectionList::render(int mouseX, int mouseY, float f)
+void RolledSelectionList::render(const MenuPointer& pointer, float f)
 {
+	mce::RenderContext& renderContext = mce::RenderContextImmediate::get();
+
 	renderBackground();
 
 	int nItems = getNumberOfItems();
+	Tesselator& t = Tesselator::instance;
 
-	// @TODO: fix gotos.
-	if (!Mouse::isButtonDown(BUTTON_LEFT))
-	{
-		if (field_28 < 0)
-		{
-		_crap:
-			field_28 = -1;
-			field_30 = getPos(f);
-			goto _done;
-		}
-
-		if (g_RolledSelectionListUnk2 < 0.0f)
-			field_38 = Mth::Max(-20.0f, g_RolledSelectionListUnk2);
-		else
-			field_38 = Mth::Min(20.0f, g_RolledSelectionListUnk2);
-
-		if (fabsf(field_38) < 2.0f)
-		{
-			field_38 = 0.0f;
-
-		_continue:
-			if (getTimeMs() - field_4C < 300)
-			{
-				int idx = transformX(mouseX) / m_itemWidth;
-				if (idx >= 0)
-				{
-					if (field_50 == idx && abs(field_3C - mouseX) <= 9)
-						selectItem(field_50, 0);
-				}
-				goto _crap;
-			}
-			goto _crap;
-		}
-
-		if (fabsf(field_38) > 10.0f)
-		{
-			goto _crap;
-		}
-
-		goto _continue;
-	}
-	else
-	{
-		touched();
-
-		if (float(mouseY) >= field_20 && float(mouseY) <= field_24)
-		{
-			if (field_28 == -1)
-			{
-				field_4C = getTimeMs();
-				field_3C = mouseX;
-				field_50 = getItemAtPosition(mouseX, field_1C / 2);
-			}
-			else if (field_28 >= 0)
-			{
-				field_34 = field_30 = field_30 - (float(mouseX) - field_2C);
-			}
-
-			field_28 = 0;
-		}
-	}
-
-_done:
-	field_2C = float(mouseX);
-	
-	capXPosition();
-	
-	glDisable(GL_LIGHTING);
-	glDisable(GL_FOG);
+	checkInput(pointer, f);
 
 	m_pMinecraft->m_pTextures->loadAndBindTexture("gui/background.png");
-	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
-	Tesselator& t = Tesselator::instance;
-	t.begin();
-	t.color(0x202020);
-	t.vertexUV(field_C,  field_24, 0.0f, (field_C  + float(int(field_30))) / 32.0f, field_24 / 32.0f);
-	t.vertexUV(field_10, field_24, 0.0f, (field_10 + float(int(field_30))) / 32.0f, field_24 / 32.0f);
-	t.vertexUV(field_10, field_20, 0.0f, (field_10 + float(int(field_30))) / 32.0f, field_20 / 32.0f);
-	t.vertexUV(field_C,  field_20, 0.0f, (field_C  + float(int(field_30))) / 32.0f, field_20 / 32.0f);
-	t.draw();
+	renderScrollBackground();
 
 	if (!getNumberOfItems())
 		field_30 = 0.0f;
@@ -194,10 +122,7 @@ _done:
 
 		if (m_bRenderSelection && isSelectedItem(i))
 		{
-			glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-			glDisable(GL_TEXTURE_2D);
-
-			t.begin();
+			t.begin(8);
 			t.color(m_bComponentSelected ? 0x7F89BF : 0x808080);
 			
 			float right = itemX + width;
@@ -213,88 +138,75 @@ _done:
 			t.vertexUV(itemX - 1, dn - 1.0f, 0.0f, 1.0f, 0.0f);
 			t.vertexUV(right + 1, dn - 1.0f, 0.0f, 1.0f, 1.0f);
 			t.vertexUV(right + 1, up + 1.0f, 0.0f, 0.0f, 1.0f);
-			t.draw();
-
-			glEnable(GL_TEXTURE_2D);
+			t.draw(m_materials.ui_fill_gradient);
 		}
 
 		renderItem(i, int(itemX), field_1C / 2 - 40, int(width), t);
 	}
 
-	glDisable(GL_DEPTH_TEST);
-
 	renderHoleBackground(0.0f, field_20, 255, 255);
 	renderHoleBackground(field_24, float(field_1C), 255, 255);
 	
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glDisable(GL_ALPHA_TEST);
-	glShadeModel(GL_SMOOTH);
-	glDisable(GL_TEXTURE_2D);
+	renderContext.setShadeMode(mce::SHADE_MODE_SMOOTH);
 	
 	// @BUG: The X and Y coordinates have been swapped. This causes the gradient to not render
 	// in the right place.
 #ifdef ORIGINAL_CODE
-	t.begin();
+	t.begin(4);
 	t.color(0, 0);
 	t.vertexUV(m_culledEntities, m_rotX + 4.0f, 0.0f, 0.0f, 1.0f);
-	t.vertexUV(field_24, m_rotX + 4.0f, 0.0f, 1.0f, 1.0f);
+	t.vertexUV(m_x1, m_rotX + 4.0f, 0.0f, 1.0f, 1.0f);
 	t.color(0, 255);
-	t.vertexUV(field_24, m_rotX, 0.0f, 1.0f, 0.0f);
+	t.vertexUV(m_x1, m_rotX, 0.0f, 1.0f, 0.0f);
 	t.vertexUV(m_culledEntities, m_rotX, 0.0f, 0.0f, 0.0f);
-	t.draw();
+	t.draw(m_materials.ui_fill_gradient);
 
-	t.begin();
+	t.begin(4);
 	t.color(0, 255);
 	t.vertexUV(m_culledEntities, m_rotY, 0.0f, 0.0f, 1.0f);
-	t.vertexUV(field_24, m_rotY, 0.0f, 1.0f, 1.0f);
+	t.vertexUV(m_x1, m_rotY, 0.0f, 1.0f, 1.0f);
 	t.color(0, 0);
-	t.vertexUV(field_24, m_rotY - 4.0f, 0.0f, 1.0f, 0.0f);
+	t.vertexUV(m_x1, m_rotY - 4.0f, 0.0f, 1.0f, 0.0f);
 	t.vertexUV(m_culledEntities, m_rotY - 4.0f, 0.0f, 0.0f, 0.0f);
-	t.draw();
+	t.draw(m_materials.ui_fill_gradient);
 #else
-	t.begin();
+	t.begin(4);
 	t.color(0, 0);
 	t.vertexUV(field_C + 4.0f, field_20, 0.0f, 0.0f, 1.0f);
 	t.vertexUV(field_C + 4.0f, field_24, 0.0f, 1.0f, 1.0f);
 	t.color(0, 255);
 	t.vertexUV(field_C, field_24, 0.0f, 1.0f, 0.0f);
 	t.vertexUV(field_C, field_20, 0.0f, 0.0f, 0.0f);
-	t.draw();
+	t.draw(m_materials.ui_fill_gradient);
 
-	t.begin();
+	t.begin(4);
 	t.color(0, 255);
 	t.vertexUV(field_10, field_20, 0.0f, 0.0f, 1.0f);
 	t.vertexUV(field_10, field_24, 0.0f, 1.0f, 1.0f);
 	t.color(0, 0);
 	t.vertexUV(field_10 - 4.0f, field_24, 0.0f, 1.0f, 0.0f);
 	t.vertexUV(field_10 - 4.0f, field_20, 0.0f, 0.0f, 0.0f);
-	t.draw();
+	t.draw(m_materials.ui_fill_gradient);
 #endif
 	
-	renderDecorations(mouseX, mouseY);
+	renderDecorations(pointer);
 	
-	glEnable(GL_TEXTURE_2D);
-	glEnable(GL_DEPTH_TEST);
-	glShadeModel(GL_FLAT);
-	glEnable(GL_ALPHA_TEST);
-	glDisable(GL_BLEND);
+	renderContext.setShadeMode(mce::SHADE_MODE_FLAT);
 }
 
 void RolledSelectionList::renderHoleBackground(float y1, float y2, int a, int b)
 {
 	m_pMinecraft->m_pTextures->loadAndBindTexture("gui/background.png");
-	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
 	Tesselator& t = Tesselator::instance;
-	t.begin();
+	t.begin(4);
 	t.color(0x505050, b);
 	t.vertexUV(0.0f, y2, 0.0f, 0.0f, y2 / 32.0f);
 	t.vertexUV(float(field_18), y2, 0.0f, float(field_18) / 32.0f, y2 / 32.0f);
 	t.color(0x505050, a);
 	t.vertexUV(float(field_18), y1, 0.0f, float(field_18) / 32.0f, y1 / 32.0f);
 	t.vertexUV(0.0f, y1, 0.0f, 0.0f, y1 / 32.0f);
-	t.draw();
+	t.draw(m_materials.ui_texture_and_color);
 }
 
 void RolledSelectionList::setRenderSelection(bool b)
@@ -327,11 +239,101 @@ void RolledSelectionList::renderHeader(int a, int b, Tesselator& t)
 
 }
 
-void RolledSelectionList::renderDecorations(int x, int y)
+void RolledSelectionList::renderDecorations(const MenuPointer& pointer)
 {
 }
 
 void RolledSelectionList::clickedHeader(int x, int y)
 {
 
+}
+
+void RolledSelectionList::checkInput(const MenuPointer& pointer, float f)
+{
+	// @TODO: fix gotos.
+	//if (!pointer.isPressed) // this doesn't work correctly for whatever reason
+	if (!Mouse::isButtonDown(MOUSE_BUTTON_LEFT))
+	{
+		if (field_28 < 0)
+		{
+		_crap:
+			field_28 = -1;
+			field_30 = getPos(f);
+			goto _done;
+		}
+
+		if (g_RolledSelectionListUnk2 < 0.0f)
+			field_38 = Mth::Max(-20.0f, g_RolledSelectionListUnk2);
+		else
+			field_38 = Mth::Min(20.0f, g_RolledSelectionListUnk2);
+
+		if (fabsf(field_38) < 2.0f)
+		{
+			field_38 = 0.0f;
+
+		_continue:
+			if (getTimeMs() - field_4C < 300)
+			{
+				int idx = transformX(pointer.x) / m_itemWidth;
+				if (idx >= 0)
+				{
+					if (field_50 == idx && fabsf(field_3C - pointer.x) <= 9)
+						selectItem(field_50, 0);
+				}
+				goto _crap;
+			}
+			goto _crap;
+		}
+
+		if (fabsf(field_38) > 10.0f)
+		{
+			goto _crap;
+		}
+
+		goto _continue;
+	}
+	else
+	{
+		touched();
+
+		if (float(pointer.y) >= field_20 && float(pointer.y) <= field_24)
+		{
+			if (field_28 == -1)
+			{
+				field_4C = getTimeMs();
+				field_3C = pointer.x;
+				field_50 = getItemAtPosition(pointer.x, field_1C / 2);
+			}
+			else if (field_28 >= 0)
+			{
+				field_34 = field_30 = field_30 - (float(pointer.x) - field_2C);
+			}
+
+			field_28 = 0;
+		}
+	}
+
+_done:
+	field_2C = float(pointer.x);
+	
+	capXPosition();
+}
+
+void RolledSelectionList::renderScrollBackground()
+{
+	Tesselator& t = Tesselator::instance;
+	t.begin(4);
+	t.color(0x202020);
+	t.vertexUV(field_C,  field_24, 0.0f, (field_C  + float(int(field_30))) / 32.0f, field_24 / 32.0f);
+	t.vertexUV(field_10, field_24, 0.0f, (field_10 + float(int(field_30))) / 32.0f, field_24 / 32.0f);
+	t.vertexUV(field_10, field_20, 0.0f, (field_10 + float(int(field_30))) / 32.0f, field_20 / 32.0f);
+	t.vertexUV(field_C,  field_20, 0.0f, (field_C  + float(int(field_30))) / 32.0f, field_20 / 32.0f);
+	t.draw(m_materials.ui_texture_and_color);
+}
+
+void RolledSelectionList::handleScrollWheel(float force)
+{
+	float diff = 5.0f * force;
+	field_34 = field_30 = field_30 + diff;
+	field_28 = 0;
 }

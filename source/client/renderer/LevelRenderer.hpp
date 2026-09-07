@@ -9,9 +9,12 @@
 #pragma once
 
 #include <algorithm>
-#include <sstream>
-#include "thirdparty/GL/GL.hpp"
+#include "client/app/AppPlatformListener.hpp"
+#include "renderer/hal/interface/FogState.hpp"
 #include "world/level/LevelListener.hpp"
+#include "world/level/Dimension.hpp"
+#include "world/tile/entity/TileEntity.hpp"
+#include "Chunk.hpp"
 #include "Textures.hpp"
 #include "RenderList.hpp"
 #include "TileRenderer.hpp"
@@ -20,18 +23,18 @@ class Minecraft;
 
 class DistanceChunkSorter
 {
-	Mob* m_pMob;
+	const Entity& m_entity;
 
 public:
-	DistanceChunkSorter(Mob* pMob)
+	DistanceChunkSorter(const Entity& entity)
+		: m_entity(entity)
 	{
-		m_pMob = pMob;
 	}
 
 	bool operator()(const Chunk* a, const Chunk* b)
 	{
-		float d1 = a->distanceToSqr(m_pMob);
-		float d2 = b->distanceToSqr(m_pMob);
+		float d1 = a->distanceToSqr(m_entity);
+		float d2 = b->distanceToSqr(m_entity);
 
 		if (d1 > 1024.0f && a->m_pos.y <= 63) d1 *= 10.0f;
 		if (d2 > 1024.0f && b->m_pos.y <= 63) d2 *= 10.0f;
@@ -42,12 +45,12 @@ public:
 
 class DirtyChunkSorter
 {
-	Mob* m_pMob;
+	const Entity& m_entity;
 
 public:
-	DirtyChunkSorter(Mob* pMob)
+	DirtyChunkSorter(const Entity& entity)
+		: m_entity(entity)
 	{
-		m_pMob = pMob;
 	}
 
 	bool operator()(const Chunk* a, const Chunk* b)
@@ -57,18 +60,41 @@ public:
 		if (!a->m_bVisible && b->m_bVisible)
 			return true;
 
-		float d1 = a->distanceToSqr(m_pMob);
-		float d2 = b->distanceToSqr(m_pMob);
+		float d1 = a->distanceToSqr(m_entity);
+		float d2 = b->distanceToSqr(m_entity);
 
 		if (d1 < d2) return false;
 		if (d1 > d2) return true;
 
-		return a->field_48 > b->field_48;
+		return a->m_id > b->m_id;
 	}
 };
 
-class LevelRenderer : public LevelListener
+class LevelRenderer : public LevelListener, public AppPlatformListener
 {
+protected:
+	class Materials
+	{
+	public:
+		mce::MaterialPtr shadow_back;
+		mce::MaterialPtr shadow_front;
+		mce::MaterialPtr shadow_overlay;
+		mce::MaterialPtr shadow_image_overlay;
+		mce::MaterialPtr stars;
+		mce::MaterialPtr skyplane;
+		mce::MaterialPtr sun_moon;
+		mce::MaterialPtr sunrise;
+		mce::MaterialPtr selection_overlay;
+		mce::MaterialPtr selection_overlay_opaque;
+		mce::MaterialPtr selection_overlay_double_sided;
+		mce::MaterialPtr selection_box;
+		mce::MaterialPtr cracks_overlay;
+		mce::MaterialPtr cracks_overlay_tile_entity;
+		mce::MaterialPtr clouds;
+
+		Materials();
+	};
+
 private:
 	static bool _areCloudsAvailable;
 	static bool _arePlanetsAvailable;
@@ -81,50 +107,86 @@ public:
 public:
 	LevelRenderer(Minecraft*, Textures*);
 
+protected:
+	void _buildSkyMesh();
+	void _buildStarsMesh();
+	void _buildSunAndMoonMeshes();
+	void _buildShadowVolume();
+	void _buildShadowOverlay();
+	void _initResources();
+	void _renderSunrise(float alpha);
+	void _renderSolarSystem(float alpha);
+	void _renderSunAndMoon(float alpha);
+	void _renderStars(float alpha);
+	void _renderTileShadow(TileSource& tileSource, Tile* tt, const Vec3& pos, TilePos& tilePos, float pow, float r, const Vec3& oPos);
+	void _recreateTessellators();
+	void _setupFog(const Entity& camera, int i);
+	const Color& _getFogColor() const;
+	void _updateViewArea(const Entity& camera);
+	void _startFrame(FrustumCuller& culler, float renderDistance, float f);
+	const mce::MaterialPtr& _chooseOverlayMaterial(Tile::RenderLayer layer) const;
+
+public:
+	// AppPlatformListener overrides
+	void onLowMemory() override;
+	void onAppResumed() override;
+	void onAppSuspended() override;
+
+	// LevelListener overrides
 	void allChanged() override;
 	void entityAdded(Entity*) override;
 	void tileChanged(const TilePos& pos) override;
 	void setTilesDirty(const TilePos& min, const TilePos& max) override;
 	void takePicture(TripodCamera*, Entity*) override;
 	void addParticle(const std::string&, const Vec3& pos, const Vec3& dir) override;
+	void playStreamingMusic(const std::string& name, const TilePos& pos) override;
 	void playSound(const std::string& name, const Vec3& pos, float volume, float pitch) override;
 	void skyColorChanged() override;
-	void generateSky();
-	void generateStars();
+	void levelEvent(const LevelEvent& event) override;
+
 	void cull(Culler*, float);
 	void deleteChunks();
 	void resortChunks(const TilePos& pos);
 	std::string gatherStats1();
 	std::string gatherStats2();
 	void onGraphicsReset();
-	void render(const AABB& aabb) const;
-	void render(Mob* pMob, int a, float b);
+	void renderLineBox(const AABB& aabb, const mce::MaterialPtr& material, float lineWidth) const;
+	void render(const Entity& camera, Tile::RenderLayer layer, float alpha, bool fog = false);
+	void renderLevel(const Entity& camera, FrustumCuller& culler, float a1, float f);
 	void renderEntities(Vec3 pos, Culler*, float f);
-	void renderSky(float);
-	void renderClouds(float);
+	void renderShadow(const Entity& entity, const Vec3& pos, float r, float pow, float a);
+	void renderSky(const Entity& camera, float alpha);
+	void prepareAndRenderClouds(const Entity& camera, float f);
+	void renderClouds(const Entity& camera, float f);
 	void renderAdvancedClouds(float);
 	void checkQueryResults(int, int);
-	void renderSameAsLast(int, float);
-	int  renderChunks(int start, int end, int a, float b);
+	void renderSameAsLast(TerrainLayer layer, float alpha, bool fog);
+	int  renderChunks(int start, int end, Tile::RenderLayer layer, float alpha, bool fog);
+	const Color& setupClearColor(float f);
 	void setLevel(Level*);
+	void setDimension(Dimension*);
 	void setDirty(const TilePos& min, const TilePos& max);
 	void tick();
-	bool updateDirtyChunks(Mob* pMob, bool b);
-	void renderHit(Player* pPlayer, const HitResult& hr, int, void*, float);
-	void renderHitSelect(Player* pPlayer, const HitResult& hr, int, void*, float);
-	void renderHitOutline(Player* pPlayer, const HitResult& hr, int, void*, float);
+	bool updateDirtyChunks(const Entity& camera, bool b);
+	void renderCracks(const Entity& camera, const HitResult& hr, int mode, const ItemStack* inventoryItem, float a);
+	void renderHitSelect(const Entity& camera, const HitResult& hr, int mode, const ItemStack* inventoryItem, float a);
+	void renderHitOutline(const Entity& camera, const HitResult& hr, int mode, const ItemStack* inventoryItem, float a);
 
+protected:
+	Vec3 m_viewPos;
+	Materials m_materials;
+	double m_initTime;
+	mce::FogStateDescription m_lastFogState;
+	Vec2 m_fogControl;
 public:
-	float field_4;
-	float field_8;
-	float field_C;
-	float field_10;
+	Vec3 m_posPrev;
+	float m_destroyProgress;
 	int m_noEntityRenderFrames;
 	int m_totalEntities;
 	int m_renderedEntities;
 	int m_culledEntities;
 	std::vector<Chunk*> field_24;
-	int field_30;
+	int m_cullStep;
 	RenderList m_renderList;
 	int m_totalChunks;
 	int m_offscreenChunks;
@@ -132,35 +194,39 @@ public:
 	int m_renderedChunks;
 	int m_emptyChunks;
 	int field_68;
-	int m_resortedMinX;
-	int m_resortedMinY;
-	int m_resortedMinZ;
-	int m_resortedMaxX;
-	int m_resortedMaxY;
-	int m_resortedMaxZ;
+	int m_xMinChunk;
+	int m_yMinChunk;
+	int m_zMinChunk;
+	int m_xMaxChunk;
+	int m_yMaxChunk;
+	int m_zMaxChunk;
 	Level* m_pLevel;
-	std::vector<Chunk*> field_88;
+	Dimension* m_pDimension;
+	std::vector<Chunk*> m_dirtyChunks;
 	Chunk** m_chunks;
-	Chunk** field_98;
+	Chunk** m_sortedChunks;
 	int m_chunksLength;
 	TileRenderer* m_pTileRenderer;
-	int field_A4;
-	int field_A8;
-	int field_AC;
-	int field_B0;
+	int m_xChunks;
+	int m_yChunks;
+	int m_zChunks;
+	int m_chunkLists;
 	Minecraft* m_pMinecraft;
-	bool field_B8;
-	int field_BC;
+	bool m_bOcclusionCheck;
+	int m_lastViewDistance;
 	int m_ticksSinceStart;
+	float m_fogBrO;
+	float m_fogBr;
 	//...
-	int m_nBuffers;
-	GLuint* m_pBuffers;
-	GLuint  m_skyBuffer;
-	int     m_skyBufferCount;
-	GLuint  m_starBuffer;
-	int     m_starBufferCount;
-	GLuint  m_darkBuffer;
-	int     m_darkBufferCount;
+	//mce::Mesh m_shadowVolumeMesh;
+	//mce::Mesh m_shadowOverlayMesh;
+	mce::Mesh m_skyMesh;
+	mce::Mesh m_cloudsMesh;
+	mce::Mesh m_starsMesh;
+	mce::Mesh m_darkMesh;
+	mce::Mesh m_sunMesh;
+	mce::Mesh m_moonMesh;
 	//...
 	Textures* m_pTextures;
+	TileEntity::Vector m_renderableTileEntities;
 };

@@ -8,23 +8,26 @@
 
 #include "PrimedTnt.hpp"
 #include "world/level/Level.hpp"
+#include "nbt/CompoundTag.hpp"
 
 void PrimedTnt::_init()
 {
+	m_renderType = RENDER_TNT;
+	m_pDescriptor = &EntityTypeDescriptor::primedTnt;
+
 	m_fuseTimer = 0;
-	field_C8 = RENDER_TNT;
     m_bBlocksBuilding = true;
 	setSize(0.98f, 0.98f);
 	m_heightOffset = m_bbHeight * 0.5f;
 	m_bMakeStepSound = false;
 }
 
-PrimedTnt::PrimedTnt(Level* level, const Vec3& pos) : Entity(level)
+PrimedTnt::PrimedTnt(TileSource& source, const Vec3& pos) : Entity(source)
 {
 	_init();
 	setPos(pos);
 
-	float fAng = 0.017453f * 2.0f * float(M_PI) * Mth::random();
+	float fAng = MTH_DEG_TO_RAD * 2.0f * float(M_PI) * Mth::random();
 
 	m_vel.x = -0.02f * Mth::sin(fAng);
 	m_vel.z = -0.02f * Mth::cos(fAng);
@@ -59,7 +62,7 @@ void PrimedTnt::tick()
 	move(m_vel);
 
 	m_vel *= 0.98f;
-	if (m_onGround)
+	if (m_bOnGround)
 	{
 		m_vel.x *= 0.7f;
 		m_vel.z *= 0.7f;
@@ -76,4 +79,14 @@ void PrimedTnt::tick()
 	{
 		m_pLevel->addParticle("smoke", Vec3(m_pos.x, m_pos.y + 0.5f, m_pos.z));
 	}
+}
+
+void PrimedTnt::addAdditionalSaveData(CompoundTag& tag) const
+{
+	tag.putInt8("Fuse", m_fuseTimer);
+}
+
+void PrimedTnt::readAdditionalSaveData(const CompoundTag& tag)
+{
+	m_fuseTimer = tag.getInt8("Fuse");
 }

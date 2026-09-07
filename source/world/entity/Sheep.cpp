@@ -1,32 +1,34 @@
 #include "Sheep.hpp"
-//#include "common/Utils.hpp"
 #include "world/level/Level.hpp"
+#include "nbt/CompoundTag.hpp"
 
 #define DATA_WOOL_ID (16)
 
-const float Sheep::COLOR[][3] = {
-	{1.00f, 1.00f, 1.00f},
-	{0.95f, 0.70f, 0.20f},
-	{0.90f, 0.50f, 0.85f},
-	{0.60f, 0.70f, 0.95f},
-	{0.90f, 0.90f, 0.20f},
-	{0.50f, 0.80f, 0.10f},
-	{0.95f, 0.70f, 0.80f},
-	{0.30f, 0.30f, 0.30f},
-	{0.60f, 0.60f, 0.60f},
-	{0.30f, 0.60f, 0.70f}, 
-	{0.70f, 0.40f, 0.90f},
-	{0.20f, 0.40f, 0.80f},
-	{0.50f, 0.40f, 0.30f},
-	{0.40f, 0.50f, 0.20f},
-	{0.80f, 0.30f, 0.30f}, 
-	{0.10f, 0.10f, 0.10f}
+const Color Sheep::COLOR[] = {
+	Color(1.00f, 1.00f, 1.00f),
+	Color(0.95f, 0.70f, 0.20f),
+	Color(0.90f, 0.50f, 0.85f),
+	Color(0.60f, 0.70f, 0.95f),
+	Color(0.90f, 0.90f, 0.20f),
+	Color(0.50f, 0.80f, 0.10f),
+	Color(0.95f, 0.70f, 0.80f),
+	Color(0.30f, 0.30f, 0.30f),
+	Color(0.60f, 0.60f, 0.60f),
+	Color(0.30f, 0.60f, 0.70f), 
+	Color(0.70f, 0.40f, 0.90f),
+	Color(0.20f, 0.40f, 0.80f),
+	Color(0.50f, 0.40f, 0.30f),
+	Color(0.40f, 0.50f, 0.20f),
+	Color(0.80f, 0.30f, 0.30f), 
+	Color(0.10f, 0.10f, 0.10f)
 };
 
-Sheep::Sheep(Level* pLevel) : Animal(pLevel)
+const unsigned int Sheep::COLOR_COUNT = sizeof(Sheep::COLOR) / (sizeof(float) * 3);
+
+Sheep::Sheep(TileSource& source) : Animal(source)
 {
 	m_pDescriptor = &EntityTypeDescriptor::sheep;
-	field_C8 = RENDER_SHEEP;
+	m_renderType = RENDER_SHEEP;
 	m_texture = "mob/sheep.png";
 	setSize(0.9f, 1.3f);
 
@@ -40,14 +42,14 @@ void Sheep::_defineEntityData()
 
 bool Sheep::hurt(Entity* pEnt, int damage)
 {
-	if (!m_pLevel->m_bIsMultiplayer && !isSheared() && (pEnt != nullptr && pEnt->getDescriptor().hasCategory(EntityCategories::MOB)))
+	if (!m_pLevel->m_bIsClientSide && !isSheared() && (pEnt != nullptr && pEnt->getDescriptor().hasCategory(EntityCategories::MOB)))
 	{
 		setSheared(true);
 		int var3 = 1 + m_random.nextInt(3);
 
 		for (int i = 0; i < var3; i++)
 		{
-			ItemEntity* item = spawnAtLocation(new ItemInstance(TILE_CLOTH_00, 1, getColor()), 1.0f);
+			ItemEntity* item = spawnAtLocation(ItemStack(TILE_CLOTH, 1, getColor()), 1.0f);
 			item->m_vel.y += m_random.nextFloat() * 0.05f;
 			item->m_vel.x += (m_random.nextFloat() - m_random.nextFloat()) * 0.1f;
 			item->m_vel.z += (m_random.nextFloat() - m_random.nextFloat()) * 0.1f;
@@ -55,6 +57,22 @@ bool Sheep::hurt(Entity* pEnt, int damage)
 	}
 
 	return Mob::hurt(pEnt, damage);
+}
+
+void Sheep::addAdditionalSaveData(CompoundTag& tag) const
+{
+	Animal::addAdditionalSaveData(tag);
+
+	tag.putInt8("Sheared", isSheared());
+	tag.putInt8("Color", getColor());
+}
+
+void Sheep::readAdditionalSaveData(const CompoundTag& tag)
+{
+	Animal::readAdditionalSaveData(tag);
+
+	setSheared(tag.getInt8("Sheared"));
+	setColor(tag.getInt8("Color"));
 }
 
 int Sheep::getColor() const 
@@ -65,7 +83,7 @@ int Sheep::getColor() const
 void Sheep::setColor(int var1)
 {
 	int8_t var2 = m_entityData.get<int8_t>(DATA_WOOL_ID);
-	m_entityData.set<int8_t>(DATA_WOOL_ID, (var2 & 240 | var1 & 15));
+	m_entityData.set<int8_t>(DATA_WOOL_ID, ((var2 & 240) | (var1 & 15)));
 }
 
 bool Sheep::isSheared() const

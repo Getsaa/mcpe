@@ -4,7 +4,8 @@
 #include <string>
 
 #include "common/Util.hpp"
-#include "world/item/ItemInstance.hpp"
+#include "common/DataIO.hpp"
+#include "world/item/ItemStack.hpp"
 #include "world/phys/Vec3.hpp"
 
 #define C_ENTITYDATA_EOF_MARKER (127)
@@ -14,6 +15,7 @@
 
 class SynchedEntityData
 {
+public:
 	typedef uint16_t DataID;
 
 	// Order here matters!
@@ -24,8 +26,8 @@ class SynchedEntityData
 		TYPE_INT32,
 		TYPE_FLOAT,
 		TYPE_STRING,
-		TYPE_ITEMINSTANCE,
-		TYPE_COMPOUNDTAG = TYPE_ITEMINSTANCE,
+		TYPE_ITEMSTACK,
+		TYPE_COMPOUNDTAG = TYPE_ITEMSTACK,
 		TYPE_TILEPOS,
 		TYPE_INT64,
 		TYPE_VEC3
@@ -60,6 +62,10 @@ class SynchedEntityData
 		DataType getType() const { return m_type; }
 		bool isDirty() const { return m_bDirty; }
 		void setDirty(bool dirty) { m_bDirty = dirty; }
+
+		// beautiful
+		template<typename T>
+		T getData() const { return ((DataItem2<T>*)this)->getData(); }
 	};
 
 	template<typename T>
@@ -79,14 +85,11 @@ class SynchedEntityData
 		T getData() const { return m_data; }
 	};
 
-public:
 	typedef std::vector<DataItem*> ItemsArray;
-	ItemsArray m_itemsArray;
-	DataID m_minIdxDirty;
-	DataID m_maxIdxDirty;
 
 public:
 	SynchedEntityData();
+	~SynchedEntityData();
 
 private:
 	void _updateMinMaxIdxDirty(DataID id);
@@ -95,6 +98,11 @@ private:
 
 public:
 	bool hasData(DataID id) const;
+	bool isDirty() const;
+	void clear();
+	ItemsArray packDirty();
+	void packAll(IDataOutput& dos) const;
+	void assignValues(const ItemsArray& items);
 
 	// These all need to be defined in the header file per https://stackoverflow.com/questions/456713/why-do-i-get-unresolved-external-symbol-errors-when-using-templates
 	template<typename T> void define(DataID id, const T& value)
@@ -117,8 +125,7 @@ public:
 	{
 		if (hasData(id) && m_itemsArray[id]->getType() == DataTypeMap::typeFor<T>())
 		{
-			const DataItem2<T>* dataItem = (const DataItem2<T>*)m_itemsArray[id];
-			return dataItem->getData();
+			return m_itemsArray[id]->template getData<T>();
 		}
 		else
 		{
@@ -159,4 +166,16 @@ public:
 		DataItem2<T>* dataItem = (DataItem2<T>*)_get(id);
 		return set(dataItem, value);
 	}
+
+private:
+	static void _WriteDataItem(IDataOutput& dos, const DataItem& dataItem);
+
+public:
+	static void Pack(const ItemsArray& items, IDataOutput& dos);
+	static ItemsArray Unpack(IDataInput& dis);
+
+private:
+	ItemsArray m_itemsArray;
+	DataID m_minIdxDirty;
+	DataID m_maxIdxDirty;
 };

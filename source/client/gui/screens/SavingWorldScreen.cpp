@@ -7,8 +7,6 @@
  ********************************************************************/
 
 #include "SavingWorldScreen.hpp"
-#include "RenameMPLevelScreen.hpp"
-#include "StartMenuScreen.hpp"
 
 #ifdef ENH_IMPROVED_SAVING
 
@@ -19,12 +17,12 @@ SavingWorldScreen::SavingWorldScreen(bool bCopyMap/*, Entity* pEnt*/)
 	//m_pEntityToDeleteAfterSave = pEnt;
 }
 
-void SavingWorldScreen::render(int mouseX, int mouseY, float f)
+void SavingWorldScreen::render(float f)
 {
 	renderDirtBackground(0);
 
-	int x_width  = int(Minecraft::width  * Gui::InvGuiScale);
-	int x_height = int(Minecraft::height * Gui::InvGuiScale);
+	int x_width  = int(Minecraft::width  * Gui::GuiScale);
+	int x_height = int(Minecraft::height * Gui::GuiScale);
 	int yPos = x_height / 2;
 
 	int width = m_pFont->width("Saving chunks");
@@ -42,37 +40,7 @@ void SavingWorldScreen::tick()
 	{
 		m_timer = -1;
 
-		Level* pLevel = m_pMinecraft->m_pLevel;
-		if (pLevel)
-		{
-			pLevel->saveUnsavedChunks();
-			pLevel->saveLevelData();
-			pLevel->savePlayerData();
-
-			LevelStorage* pStorage = pLevel->getLevelStorage();
-			SAFE_DELETE(pStorage);
-			SAFE_DELETE(pLevel);
-
-			m_pMinecraft->m_pLevel = nullptr;
-		}
-
-		// this is safe to do, since on destruction, nothing accesses the parent level or anything
-		//SAFE_DELETE(m_pEntityToDeleteAfterSave);
-		// already done by the Level
-
-		m_pMinecraft->m_pMobPersp = m_pMinecraft->m_pLocalPlayer = nullptr;
-
-
-		m_pMinecraft->m_bUsingScreen = true;
-
-		if (m_bCopyMapAtEnd)
-			m_pMinecraft->setScreen(new RenameMPLevelScreen("_LastJoinedServer"));
-		else
-			m_pMinecraft->setScreen(new StartMenuScreen);
-
-		m_pMinecraft->m_bUsingScreen = false;
-
-		m_pMinecraft->m_bIsGamePaused = false;
+		m_pMinecraft->unloadLevel(m_bCopyMapAtEnd);
 	}
 }
 

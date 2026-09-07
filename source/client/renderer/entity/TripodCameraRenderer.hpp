@@ -9,29 +9,22 @@
 #pragma once
 
 #include "EntityRenderer.hpp"
+#include "client/model/geom/ModelPart.hpp"
 #include "client/renderer/TileRenderer.hpp"
 #include "world/tile/Tile.hpp"
 #include "world/entity/TripodCamera.hpp"
-
-class TripodTile : public Tile
-{
-public:
-	TripodTile();
-	int getRenderShape() const override;
-};
 
 class TripodCameraRenderer : public EntityRenderer
 {
 public:
 	TripodCameraRenderer();
 
-	void render(Entity*, float, float, float, float, float) override;
+	void render(const Entity& entity, const Vec3& pos, float rot, float a) override;
 	
-	static float getFlashTime(TripodCamera*, float f);
+	static float getFlashTime(const TripodCamera& camera, float f);
 
 public:
 	TileRenderer m_renderer;
-	TripodTile m_tile;
 	ModelPart m_modelPart;
 };
 

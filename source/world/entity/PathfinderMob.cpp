@@ -10,11 +10,11 @@
 
 #define MAX_TURN (30.0f)
 
-PathfinderMob::PathfinderMob(Level* pLevel) : Mob(pLevel)
+PathfinderMob::PathfinderMob(TileSource& source) : Mob(source)
 {
 	m_pAttackTarget = nullptr;
 	m_bHoldGround = false;
-	field_BA4 = 0;
+	m_goCrazyTicks = 0;
 }
 
 Entity* PathfinderMob::getAttackTarget()
@@ -32,9 +32,9 @@ Entity* PathfinderMob::findAttackTarget()
 	return nullptr;
 }
 
-bool PathfinderMob::checkHurtTarget(Entity* pEnt, float f)
+void PathfinderMob::checkHurtTarget(Entity* pEnt, float f)
 {
-	return false;
+	// Override this function in your own mob.
 }
 
 void PathfinderMob::checkCantSeeTarget(Entity* pEnt, float f)
@@ -85,13 +85,13 @@ float PathfinderMob::getWalkingSpeedModifier() const
 {
 	float mod = Mob::getWalkingSpeedModifier();
 
-	if (field_BA4 > 0)
+	if (m_goCrazyTicks > 0)
 		mod *= 2.0f;
 
 	return mod;
 }
 
-bool PathfinderMob::canSpawn() const
+bool PathfinderMob::canSpawn()
 {
 	if (!Mob::canSpawn())
 		return false;
@@ -101,8 +101,8 @@ bool PathfinderMob::canSpawn() const
 
 void PathfinderMob::updateAi()
 {
-	if (field_BA4 > 0)
-		field_BA4--;
+	if (m_goCrazyTicks > 0)
+		m_goCrazyTicks--;
 
 	m_bHoldGround = shouldHoldGround();
 
@@ -133,14 +133,14 @@ void PathfinderMob::updateAi()
 	{
 		m_pLevel->findPath(&m_path, this, m_pAttackTarget, 16.0f);
 	}
-	else if (!m_bHoldGround && ((m_path.empty() && m_random.nextInt(180) == 0) || field_BA4 > 0 || m_random.nextInt(120) == 0))
+	else if (!m_bHoldGround && ((m_path.empty() && m_random.nextInt(180) == 0) || m_goCrazyTicks > 0 || m_random.nextInt(120) == 0))
 	{
 		if (m_noActionTime < 100)
 			findRandomStrollLocation();
 	}
 
 
-	m_rot.y = 0.0f;
+	m_rot.pitch = 0.0f;
 
 	if (m_path.empty() || m_random.nextInt(100) == 0)
 	{
@@ -179,29 +179,29 @@ void PathfinderMob::updateAi()
 		float ang = Mth::atan2(nodePos.z - m_pos.z, nodePos.x - m_pos.x) * 180.0f / float(M_PI) - 90.0f;
 		float heightDiff = nodePos.y - Mth::floor(m_hitbox.min.y + 0.5f ); // +0.5f is not present on b1.2_02, but is present on 0.12.1
 
-		field_B00.y = m_runSpeed;
+		m_moveVelocity.y = m_runSpeed;
 
-		float angDiff = ang - m_rot.x;
+		float angDiff = ang - m_rot.yaw;
 		while (angDiff < -180.0f) angDiff += 360.0f;
 		while (angDiff >= 180.0f) angDiff -= 360.0f;
 
 		if (angDiff > +MAX_TURN) angDiff = +MAX_TURN;
 		if (angDiff < -MAX_TURN) angDiff = -MAX_TURN;
 
-		float oldYaw = m_rot.x;
+		float oldYaw = m_rot.yaw;
 
-		m_rot.x += angDiff;
+		m_rot.yaw += angDiff;
 
 		if (m_bHoldGround && m_pAttackTarget)
 		{
 			float ang2 = Mth::atan2(m_pAttackTarget->m_pos.z - m_pos.z, m_pAttackTarget->m_pos.x - m_pos.x) * 180.0f / float(M_PI) - 90.0f;
-			m_rot.x = ang2;
+			m_rot.yaw = ang2;
 
 			float thing = ((((angDiff + oldYaw) - ang2) + 90.0f) * float(M_PI)) / 180.0f;
 
-			// @NOTE: Using old field_B00.y value. This is intentional and consistent with b1.2_02.
-			field_B00.x = -field_B00.y * Mth::sin(thing);
-			field_B00.y =  field_B00.y * Mth::cos(thing);
+			// @NOTE: Using old m_moveVelocity.y value. This is intentional and consistent with b1.2_02.
+			m_moveVelocity.x = -m_moveVelocity.y * Mth::sin(thing);
+			m_moveVelocity.y =  m_moveVelocity.y * Mth::cos(thing);
 		}
 
 		if (heightDiff > 0.0f)
@@ -212,7 +212,7 @@ void PathfinderMob::updateAi()
 		lookAt(m_pAttackTarget, MAX_TURN, MAX_TURN);
 
 	// if we hit a wall while moving
-	if (m_bHorizontalCollision && !isPathFinding())
+	if (m_bHorizontalCollision && isPathFinding())
 		m_bJumping = true;
 
 	// if we're in water, try to swim up

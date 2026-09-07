@@ -8,6 +8,7 @@
  *
  */
 
+#include "../../compat/PlatformDefinitions.h"
 #include "RakNetSocket2.h"
 #include "RakMemoryOverride.h"
 #include "RakAssert.h"
@@ -23,16 +24,31 @@ using namespace RakNet;
 #else
 #include <unistd.h>
 #include <fcntl.h>
+#ifdef XENON
+#include <lwip/inet.h>
+#else
 #include <arpa/inet.h>
+#endif
 #include <errno.h>  // error numbers
-#if !defined(ANDROID)
+#ifdef XENON
+#include <lwip/inet.h>
+#define IP_HDRINCL 3
+#include <sys/types.h>
+#include <lwip/sockets.h>
+#else
+#if MC_SDK_LIBXENON
 #include <ifaddrs.h>
 #endif
 #include <netinet/in.h>
+#if !defined(__DREAMCAST__)
 #include <net/if.h>
+#else
+#define IP_HDRINCL 3
+#endif
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+#endif
 #endif
 
 #ifdef TEST_NATIVE_CLIENT_ON_WINDOWS

@@ -8,31 +8,40 @@
 
 #pragma once
 
-#include <string>
-#include "world/phys/Vec3.hpp"
-#include "world/gamemode/GameType.hpp"
-#include "world/entity/Player.hpp"
+#include "RakNetVersion.h"
 #include "RakNetTypes.h"
 #include "BitStream.h"
 #include "MessageIdentifiers.h"
-#include "NetEventCallback.hpp"
+#include "PacketPriority.h"
+#include "OrderingChannel.hpp"
 
-#define NETWORK_PROTOCOL_VERSION_MIN 1 // ?
-#define NETWORK_PROTOCOL_VERSION 2	   // 0.1.1
-//#define NETWORK_PROTOCOL_VERSION 3	   // 0.2.1
+#define NETWORK_PROTOCOL_VERSION_MIN 6 // the packet IDs changed completely between 2 thru 6
+//#define NETWORK_PROTOCOL_VERSION 2   // 0.1.0 (actual client crashes with unrecognized tiles)
+//#define NETWORK_PROTOCOL_VERSION 3   // 0.2.0 (actual client crashes with unrecognized entities)
+//#define NETWORK_PROTOCOL_VERSION 4   // 0.3.0
+//#define NETWORK_PROTOCOL_VERSION 5   // 0.3.2
+#define NETWORK_PROTOCOL_VERSION 6     // 0.3.3
+//#define NETWORK_PROTOCOL_VERSION 7   // 0.4.0
+//#define NETWORK_PROTOCOL_VERSION 11  // 0.7.0
+//#define NETWORK_PROTOCOL_VERSION 29  // 0.12.1
 
 class NetEventCallback;
 class Level;
 class LevelChunk;
 
 // RakNet requires this to be cast to an "unsigned char" before being written to the BitStream
-enum ePacketType
+enum MinecraftPacketIds
 #ifndef USE_OLD_CPP
 : uint8_t // this is compiled as a 32-bit integer in C++03 and earlier, and we obviously CANNOT afford a 24-bit inconsitency.
 // TODO: WritePacketType function that casts this down to a uint8_t / an unsigned 8-bit integer?
 #endif
 {
 #if NETWORK_PROTOCOL_VERSION <= 2
+
+#if RAKNET_PROTOCOL_VERSION != 4
+#error RAKNET_PROTOCOL_VERSION must be 4
+#endif
+
 	PACKET_LOGIN = ID_USER_PACKET_ENUM,
 	PACKET_MESSAGE,
 	PACKET_START_GAME,
@@ -57,6 +66,8 @@ enum ePacketType
 	PACKET_ADD_ITEM_ENTITY,
 	PACKET_TAKE_ITEM_ENTITY,
 	PACKET_MOVE_ENTITY,
+	PACKET_MOVE_ENTITY_POS,
+	PACKET_MOVE_ENTITY_ROT,
 	PACKET_MOVE_ENTITY_POS_ROT,
 	PACKET_EXPLODE,
 	PACKET_LEVEL_EVENT,
@@ -66,8 +77,14 @@ enum ePacketType
 	PACKET_SET_ENTITY_DATA,
 	PACKET_SET_HEALTH,
 	PACKET_ANIMATE,
-	PACKET_RESPAWN,
-#else
+	PACKET_RESPAWN
+
+#elif NETWORK_PROTOCOL_VERSION <= 3
+
+#if RAKNET_PROTOCOL_VERSION != 4
+#error RAKNET_PROTOCOL_VERSION must be 4
+#endif
+
 	PACKET_LOGIN = ID_USER_PACKET_ENUM,
 	PACKET_LOGIN_STATUS,
 	PACKET_READY,
@@ -77,11 +94,14 @@ enum ePacketType
 	PACKET_ADD_MOB,
 	PACKET_ADD_PLAYER,
 	PACKET_REMOVE_PLAYER,
-	PACKET_REMOVE_ENTITY = 144,
+	PACKET_ADD_ENTITY = 143,
+	PACKET_REMOVE_ENTITY,
 	PACKET_ADD_ITEM_ENTITY,
 	PACKET_TAKE_ITEM_ENTITY,
 	PACKET_MOVE_ENTITY,
-	PACKET_MOVE_ENTITY_POS_ROT = 150,
+	PACKET_MOVE_ENTITY_POS,
+	PACKET_MOVE_ENTITY_ROT,
+	PACKET_MOVE_ENTITY_POS_ROT,
 	PACKET_MOVE_PLAYER,
 	PACKET_PLACE_BLOCK,
 	PACKET_REMOVE_BLOCK,
@@ -99,270 +119,177 @@ enum ePacketType
 	PACKET_ANIMATE,
 	PACKET_RESPAWN,
 
-	PACKET_LEVEL_DATA = 200,
+	PACKET_LEVEL_DATA = 200
+
+#elif NETWORK_PROTOCOL_VERSION <= 4
+
+#if RAKNET_PROTOCOL_VERSION != 5
+#error RAKNET_PROTOCOL_VERSION must be 5
+#endif
+
+	PACKET_LOGIN = ID_USER_PACKET_ENUM - 4, // really Mojang?
+	PACKET_LOGIN_STATUS,
+	PACKET_READY,
+	PACKET_MESSAGE,
+	PACKET_SET_TIME,
+	PACKET_START_GAME,
+	PACKET_ADD_MOB,
+	PACKET_ADD_PLAYER,
+	PACKET_REMOVE_PLAYER,
+	PACKET_ADD_ENTITY = 139,
+	PACKET_REMOVE_ENTITY,
+	PACKET_ADD_ITEM_ENTITY,
+	PACKET_TAKE_ITEM_ENTITY,
+	PACKET_MOVE_ENTITY,
+	PACKET_MOVE_ENTITY_POS,
+	PACKET_MOVE_ENTITY_ROT,
+	PACKET_MOVE_ENTITY_POS_ROT,
+	PACKET_MOVE_PLAYER,
+	PACKET_PLACE_BLOCK,
+	PACKET_REMOVE_BLOCK,
+	PACKET_UPDATE_BLOCK,
+	PACKET_EXPLODE,
+	PACKET_LEVEL_EVENT,
+	PACKET_ENTITY_EVENT,
+	PACKET_REQUEST_CHUNK,
+	PACKET_CHUNK_DATA,
+	PACKET_PLAYER_EQUIPMENT,
+	PACKET_INTERACT,
+	PACKET_USE_ITEM,
+	PACKET_SET_ENTITY_DATA,
+	PACKET_SET_HEALTH,
+	PACKET_ANIMATE,
+	PACKET_RESPAWN,
+	PACKET_SEND_INVENTORY,
+	PACKET_DROP_ITEM,
+
+	PACKET_LEVEL_DATA = 200
+
+#elif NETWORK_PROTOCOL_VERSION <= 5
+
+#if RAKNET_PROTOCOL_VERSION != 5
+#error RAKNET_PROTOCOL_VERSION must be 5
+#endif
+
+	PACKET_LOGIN = ID_USER_PACKET_ENUM - 4, // really Mojang?
+	PACKET_LOGIN_STATUS,
+	PACKET_READY,
+	PACKET_MESSAGE,
+	PACKET_SET_TIME,
+	PACKET_START_GAME,
+	PACKET_ADD_MOB,
+	PACKET_ADD_PLAYER,
+	PACKET_REMOVE_PLAYER,
+	PACKET_ADD_ENTITY = 139,
+	PACKET_REMOVE_ENTITY,
+	PACKET_ADD_ITEM_ENTITY,
+	PACKET_TAKE_ITEM_ENTITY,
+	PACKET_MOVE_ENTITY,
+	PACKET_MOVE_ENTITY_POS,
+	PACKET_MOVE_ENTITY_ROT,
+	PACKET_MOVE_ENTITY_POS_ROT,
+	PACKET_MOVE_PLAYER,
+	PACKET_PLACE_BLOCK,
+	PACKET_REMOVE_BLOCK,
+	PACKET_UPDATE_BLOCK,
+	PACKET_EXPLODE,
+	PACKET_LEVEL_EVENT,
+	PACKET_TILE_EVENT,
+	PACKET_ENTITY_EVENT,
+	PACKET_REQUEST_CHUNK,
+	PACKET_CHUNK_DATA,
+	PACKET_PLAYER_EQUIPMENT,
+	PACKET_INTERACT,
+	PACKET_USE_ITEM,
+	PACKET_SET_ENTITY_DATA,
+	PACKET_SET_ENTITY_MOTION,
+	PACKET_SET_HEALTH,
+	PACKET_ANIMATE,
+	PACKET_RESPAWN,
+	PACKET_SEND_INVENTORY,
+	PACKET_DROP_ITEM,
+	PACKET_CONTAINER_OPEN,
+	PACKET_CONTAINER_CLOSE,
+	PACKET_CONTAINER_SET_SLOT,
+	PACKET_CONTAINER_SET_DATA,
+	PACKET_CONTAINER_SET_CONTENT,
+	PACKET_CONTAINER_ACK, // @PARITY: Unused in PE
+
+	PACKET_LEVEL_DATA = 200
+
+#else
+
+#if RAKNET_PROTOCOL_VERSION != 5
+#error RAKNET_PROTOCOL_VERSION must be 5
+#endif
+
+	PACKET_LOGIN = ID_USER_PACKET_ENUM - 4, // really Mojang?
+	PACKET_LOGIN_STATUS,
+	PACKET_READY,
+	PACKET_MESSAGE,
+	PACKET_SET_TIME,
+	PACKET_START_GAME,
+	PACKET_ADD_MOB,
+	PACKET_ADD_PLAYER,
+	PACKET_REMOVE_PLAYER,
+	PACKET_ADD_ENTITY = 140,
+	PACKET_REMOVE_ENTITY,
+	PACKET_ADD_ITEM_ENTITY,
+	PACKET_TAKE_ITEM_ENTITY,
+	PACKET_MOVE_ENTITY,
+	PACKET_MOVE_ENTITY_POS,
+	PACKET_MOVE_ENTITY_ROT,
+	PACKET_MOVE_ENTITY_POS_ROT,
+	PACKET_MOVE_PLAYER,
+	PACKET_PLACE_BLOCK,
+	PACKET_REMOVE_BLOCK,
+	PACKET_UPDATE_BLOCK,
+	PACKET_EXPLODE,
+	PACKET_LEVEL_EVENT,
+	PACKET_TILE_EVENT,
+	PACKET_ENTITY_EVENT,
+	PACKET_REQUEST_CHUNK,
+	PACKET_CHUNK_DATA,
+	PACKET_PLAYER_EQUIPMENT,
+	PACKET_INTERACT,
+	PACKET_USE_ITEM,
+	PACKET_PLAYER_ACTION,
+	PACKET_SET_ENTITY_DATA,
+	PACKET_SET_ENTITY_MOTION,
+	PACKET_SET_HEALTH,
+	PACKET_ANIMATE,
+	PACKET_RESPAWN,
+	PACKET_SEND_INVENTORY,
+	PACKET_DROP_ITEM,
+	PACKET_CONTAINER_OPEN,
+	PACKET_CONTAINER_CLOSE,
+	PACKET_CONTAINER_SET_SLOT,
+	PACKET_CONTAINER_SET_DATA,
+	PACKET_CONTAINER_SET_CONTENT,
+	PACKET_CONTAINER_ACK, // @PARITY: Unused in PE
+	PACKET_CHAT,
+
+	PACKET_LEVEL_DATA = 200
+
 #endif
 };
 
 class Packet
 {
 public:
+	Packet()
+		: m_priority(HIGH_PRIORITY)
+		, m_reliability(RELIABLE)
+		, m_channel(CHANNEL_DEFAULT)
+	{}
 	virtual ~Packet() {}
-	virtual void write(RakNet::BitStream*) = 0;
-	virtual void read(RakNet::BitStream*) = 0;
-	virtual void handle(const RakNet::RakNetGUID&, NetEventCallback*) = 0;
-};
 
-class LoginPacket : public Packet
-{
-public:
-	LoginPacket() {}
-	LoginPacket(const std::string& uname)
-	{
-		m_str = RakNet::RakString(uname.c_str());
-		m_clientNetworkVersion = 2;
-		m_clientNetworkVersion2 = 2;
-	}
-
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	RakNet::RakString m_str;
-	int m_clientNetworkVersion;
-	int m_clientNetworkVersion2;
-};
-
-class LoginStatusPacket : public Packet
-{
-public:
-	enum LoginStatus
-	{
-		STATUS_SUCCESS,
-		STATUS_CLIENT_OUTDATED,
-		STATUS_SERVER_OUTDATED
-	};
+	virtual void write(RakNet::BitStream&) = 0;
+	virtual void read(RakNet::BitStream&) = 0;
+	virtual void handle(const RakNet::RakNetGUID&, NetEventCallback&) = 0;
 
 public:
-	LoginStatusPacket(LoginStatus loginStatus = STATUS_SUCCESS)
-	{
-		m_loginStatus = loginStatus;
-	}
-
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	LoginStatus m_loginStatus;
-};
-
-class ReadyPacket : public Packet
-{
-public:
-	ReadyPacket(int ready = 0)
-	{
-		m_ready = ready;
-	}
-
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	uint8_t m_ready;
-};
-
-class MessagePacket : public Packet
-{
-public:
-	MessagePacket() {}
-	MessagePacket(const std::string& msg)
-	{
-		m_str = msg.c_str();
-	}
-
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	RakNet::RakString m_str;
-};
-
-class SetTimePacket : public Packet
-{
-public:
-	SetTimePacket(int32_t time = 0)
-	{
-		m_time = time;
-	}
-
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	int32_t m_time;
-};
-
-class StartGamePacket : public Packet
-{
-public:
-	StartGamePacket()
-	{
-		m_gameType = GAME_TYPES_MAX;
-		m_serverVersion = 0;
-		m_time = 0;
-	}
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	int32_t m_seed;
-	int m_levelVersion;
-	GameType m_gameType;
-	int m_entityId;
-	Vec3 m_pos;
-	int m_serverVersion;
-	int m_time;
-};
-
-class AddPlayerPacket : public Packet
-{
-public:
-	AddPlayerPacket() {}
-	AddPlayerPacket(const Player *player);
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	int field_4;
-	RakNet::RakNetGUID m_guid;
-	int field_14;
-	RakNet::RakString m_name;
-	int m_id;
-	Vec3 m_pos;
-};
-
-class RemoveEntityPacket : public Packet
-{
-public:
-	RemoveEntityPacket() {}
-	RemoveEntityPacket(int id) { m_id = id; }
-
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	int m_id;
-};
-
-class MovePlayerPacket : public Packet
-{
-public:
-	MovePlayerPacket() {}
-	MovePlayerPacket(int id, const Vec3& pos, const Vec2& rot): m_id(id), m_pos(pos), m_rot(rot) {}
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	int m_id;
-	Vec3 m_pos;
-	Vec2 m_rot;
-};
-
-class PlaceBlockPacket : public Packet
-{
-public:
-	PlaceBlockPacket() {}
-	PlaceBlockPacket(int playerID, const TilePos& pos, TileID tile, Facing::Name face)
-	{
-		m_playerID = playerID;
-		m_pos = pos;
-		m_tile = tile;
-		m_face = face;
-	}
-
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	int m_playerID;
-	TilePos m_pos;
-	TileID m_tile;
-	uint8_t m_face;
-};
-
-class RemoveBlockPacket : public Packet
-{
-public:
-	RemoveBlockPacket() {}
-	RemoveBlockPacket(int id, const TilePos& pos) :m_playerID(id), m_pos(pos) {}
-
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	int m_playerID;
-	TilePos m_pos;
-};
-
-class UpdateBlockPacket : public Packet
-{
-public:
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	TilePos m_pos;
-	TileID m_tile;
-	uint8_t m_data;
-};
-
-class RequestChunkPacket : public Packet
-{
-public:
-	RequestChunkPacket() {}
-	RequestChunkPacket(const ChunkPos& pos) { m_chunkPos = pos; }
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	ChunkPos m_chunkPos;
-};
-
-class ChunkDataPacket : public Packet
-{
-public:
-	ChunkDataPacket() {}
-	ChunkDataPacket(const ChunkPos& pos, LevelChunk* c) :m_chunkPos(pos), m_pChunk(c) {}
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	ChunkPos m_chunkPos;
-	RakNet::BitStream m_data;
-	LevelChunk* m_pChunk;
-};
-
-class LevelDataPacket : public Packet
-{
-public:
-	LevelDataPacket() {}
-	LevelDataPacket(Level* level) : m_pLevel(level) {}
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	RakNet::BitStream m_data;
-	Level* m_pLevel;
-};
-
-class PlayerEquipmentPacket : public Packet
-{
-public:
-	PlayerEquipmentPacket() {}
-	PlayerEquipmentPacket(int playerID, int itemID): m_playerID(playerID), m_itemID(itemID) {}
-	void handle(const RakNet::RakNetGUID&, NetEventCallback* pCallback) override;
-	void write(RakNet::BitStream*) override;
-	void read(RakNet::BitStream*) override;
-public:
-	int m_playerID;
-	uint16_t m_itemID;
+	PacketPriority m_priority;
+	PacketReliability m_reliability;
+	OrderingChannel m_channel;
 };

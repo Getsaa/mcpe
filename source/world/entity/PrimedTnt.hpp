@@ -15,12 +15,15 @@ class PrimedTnt : public Entity
 private:
 	void _init();
 public:
-	PrimedTnt(Level* level) : Entity(level) { _init(); }
-	PrimedTnt(Level* level, const Vec3& pos);
+	PrimedTnt(TileSource& source) : Entity(source) { _init(); }
+	PrimedTnt(TileSource& source, const Vec3& pos);
 
+public:
 	float getShadowHeightOffs() const override;
 	bool isPickable() const override;
 	void tick() override;
+	void addAdditionalSaveData(CompoundTag& tag) const override;
+	void readAdditionalSaveData(const CompoundTag& tag) override;
 
 	void explode();
 

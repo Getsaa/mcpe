@@ -15,6 +15,9 @@
 #include "RakPeerInterface.h"
 #include "Packet.hpp"
 
+#define C_DEFAULT_PORT (19132)
+#define C_MAX_CONNECTIONS (4) // pitiful
+
 class Packet;
 
 class RakNetInstance
@@ -22,6 +25,12 @@ class RakNetInstance
 public:
 	RakNetInstance();
 	~RakNetInstance();
+
+protected:
+	bool _startup(RakNet::SocketDescriptor& socketDesc, int maxConnections = C_MAX_CONNECTIONS);
+	bool _tryStartup();
+
+public:
 	void announceServer(const std::string& name);
 	void clearServerList();
 	bool connect(const char* host, int port);
@@ -31,9 +40,14 @@ public:
 	bool host(const std::string& name, int port, int maxConnections);
 	bool isMyLocalGuid(const RakNet::RakNetGUID& guid);
 	void pingForHosts(int port);
-	void runEvents(NetEventCallback*);
+	void runEvents(NetEventCallback&);
 	void send(Packet* packet);
 	void send(const RakNet::RakNetGUID& guid, Packet* packet);
+	void send(const RakNet::RakNetGUID& guid, RakNet::BitStream& bitStream, Packet* packet);
+	void send(Packet& packet);
+	void send(const RakNet::RakNetGUID& guid, Packet& packet);
+	void send(RakNet::BitStream& bitStream, Packet& packet);
+	void send(const RakNet::RakNetGUID& guid, RakNet::BitStream& bitStream, Packet& packet);
 	void stopPingForHosts();
 
 public:

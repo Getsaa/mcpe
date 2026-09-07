@@ -6,8 +6,15 @@
 	SPDX-License-Identifier: BSD-1-Clause
  ********************************************************************/
 
-#include <sstream>
 #include "ParticleEngine.hpp"
+#include "client/renderer/renderer/RenderMaterialGroup.hpp"
+#include "world/level/TileSource.hpp"
+
+ParticleEngine::Materials::Materials()
+{
+	MATERIAL_PTR(common, particles_opaque);
+	MATERIAL_PTR(common, particles_alpha);
+}
 
 ParticleEngine::ParticleEngine(Level* level, Textures* textures)
 {
@@ -48,14 +55,14 @@ void ParticleEngine::add(Particle* particle)
 std::string ParticleEngine::countParticles()
 {
 	// @NOTE: For whatever reason this returns a string??
-	std::stringstream ss;
-	ss << (m_particles[0].size() + m_particles[1].size() + m_particles[2].size() + m_particles[3].size());
-	return ss.str();
+	return Util::toString(uint32_t(m_particles[0].size() + m_particles[1].size() + m_particles[2].size() + m_particles[3].size()));
 }
 
-void ParticleEngine::crack(const TilePos& tilePos, Facing::Name face)
+void ParticleEngine::crack(Entity& entity, const TilePos& tilePos, Facing::Name face)
 {
-	TileID tileID = m_pLevel->getTile(tilePos);
+	TileSource& source = entity.getTileSource();
+
+	TileID tileID = source.getTile(tilePos);
 	if (!tileID) return;
 
 	Tile* pTile = Tile::tiles[tileID];
@@ -99,15 +106,17 @@ void ParticleEngine::crack(const TilePos& tilePos, Facing::Name face)
 			break;
 	}
 
-	add((new TerrainParticle(m_pLevel, pos, pTile))->setPower(0.2f)->scale(0.6f));
+	add((new TerrainParticle(source, pos, pTile))->init(tilePos, face)->setPower(0.2f)->scale(0.6f));
 }
 
-void ParticleEngine::destroyEffect(const TilePos& pos)
+void ParticleEngine::destroyEffect(Entity& entity, const TilePos& pos)
 {
-	TileID tileID = m_pLevel->getTile(pos);
+	TileSource& source = entity.getTileSource();
+
+	TileID tileID = source.getTile(pos);
 	if (!tileID) return;
 
-	float timeS = getTimeS();
+	//float timeS = getTimeS();
 
 	Tile* pTile = Tile::tiles[tileID];
 
@@ -124,13 +133,13 @@ void ParticleEngine::destroyEffect(const TilePos& pos)
 					      vec1.y - float(pos.y) - 0.5f,
 					      vec1.z - float(pos.z) - 0.5f);
 
-				add((new TerrainParticle(m_pLevel, vec1, vec2, pTile))->init(pos));
+				add((new TerrainParticle(source, vec1, vec2, pTile))->init(pos));
 			}
 		}
 	}
 
-	if (timeS != -1.0)
-		getTimeS();
+	//if (timeS != -1.0)
+	//	getTimeS();
 
 	// @NOTE: Useless string creation
 #ifdef ORIGINAL_CODE
@@ -142,22 +151,22 @@ void ParticleEngine::destroyEffect(const TilePos& pos)
 bool g_bDisableParticles;
 #endif
 
-void ParticleEngine::render(Entity* ent, float f)
+void ParticleEngine::render(const Entity& camera, float f)
 {
 #ifdef ENH_CAMERA_NO_PARTICLES
 	if (g_bDisableParticles)
 		return;
 #endif
 
-	float x1 = Mth::cos(float(M_PI) * ent->m_rot.x / 180.0f);
-	float x3 = Mth::sin(float(M_PI) * ent->m_rot.x / 180.0f);
-	float x4 = -(x3 * Mth::sin(float(M_PI) * ent->m_rot.y / 180.0f));
-	float x5 = x1 * Mth::sin(float(M_PI) * ent->m_rot.y / 180.0f);
-	float x2 = Mth::cos(float(M_PI) * ent->m_rot.y / 180.0f);
+	float x1 = Mth::cos(float(M_PI) * camera.m_rot.yaw / 180.0f);
+	float x3 = Mth::sin(float(M_PI) * camera.m_rot.yaw / 180.0f);
+	float x4 = -(x3 * Mth::sin(float(M_PI) * camera.m_rot.pitch / 180.0f));
+	float x5 = x1 * Mth::sin(float(M_PI) * camera.m_rot.pitch / 180.0f);
+	float x2 = Mth::cos(float(M_PI) * camera.m_rot.pitch / 180.0f);
 
-	Particle::xOff = Mth::Lerp(ent->m_posPrev.x, ent->m_pos.x, f);
-	Particle::yOff = Mth::Lerp(ent->m_posPrev.y, ent->m_pos.y, f);
-	Particle::zOff = Mth::Lerp(ent->m_posPrev.z, ent->m_pos.z, f);
+	Particle::xOff = Mth::Lerp(camera.m_posPrev.x, camera.m_pos.x, f);
+	Particle::yOff = Mth::Lerp(camera.m_posPrev.y, camera.m_pos.y, f);
+	Particle::zOff = Mth::Lerp(camera.m_posPrev.z, camera.m_pos.z, f);
 
 	// @BUG: Ignoring the last particle array. Invisible?
 	Tesselator& t = Tesselator::instance;
@@ -165,10 +174,12 @@ void ParticleEngine::render(Entity* ent, float f)
 	{
 		if (i == PT_TERRAIN)
 			m_pTextures->loadAndBindTexture(C_TERRAIN_NAME);
+		else if (i == PT_ITEM)
+			m_pTextures->loadAndBindTexture(C_ITEMS_NAME);
 		else
-			m_pTextures->loadAndBindTexture("particles.png");
+			m_pTextures->loadAndBindTexture(C_PARTICLES_NAME);
 
-		t.begin();
+		t.begin(4 * m_particles[i].size());
 
 		for (std::vector<Particle*>::iterator it = m_particles[i].begin(); it != m_particles[i].end(); it++)
 		{
@@ -176,20 +187,20 @@ void ParticleEngine::render(Entity* ent, float f)
 			pParticle->render(t, f, x1, x2, x3, x4, x5);
 		}
 
-		t.draw();
+		t.draw(m_materials.particles_alpha);
 	}
 }
 
-void ParticleEngine::renderLit(Entity* player, float a)
+void ParticleEngine::renderLit(const Entity& camera, float a)
 {
 	int tt = 3;
 	if (m_particles[tt].size() != 0)
 	{
 		Tesselator& t = Tesselator::instance;
 
-		for (int i = 0; i < m_particles[tt].size(); ++i)
+		for (size_t i = 0; i < m_particles[tt].size(); ++i)
 		{
-			Particle* p = m_particles[tt].at(i);
+			Particle* p = m_particles[tt][i];
 			p->render(t, a, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 		}
 

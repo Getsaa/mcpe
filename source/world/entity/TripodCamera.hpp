@@ -16,19 +16,18 @@ class Player;
 class TripodCamera : public Mob
 {
 public:
-	TripodCamera(Level*, Player*, const Vec3& pos);
+	TripodCamera(Entity& owner);
 
 	float getShadowHeightOffs() const override { return 0.0f; }
 	bool interact(Player* player) override;
-	int interactPreventDefault() override;
+	bool interactPreventDefault() const override;
 	bool isPickable() const override { return !m_bRemoved; }
 	bool isPushable() const override { return false; }
 	void tick() override;
 
 public:
-	int field_B8C;
-	int field_B90;
-	Player* m_owner;
-	bool m_bActive;
+	int m_countdown;
+	Entity& m_owner;
+	bool m_bActivated;
 };
 

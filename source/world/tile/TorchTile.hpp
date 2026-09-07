@@ -15,17 +15,18 @@ class TorchTile : public Tile
 public:
 	TorchTile(int ID, int texture, Material* pMtl);
 
-	AABB* getAABB(const Level*, const TilePos& pos) override;
+public:
+	AABB* getAABB(const TileSource&, const TilePos& pos) override;
 	bool isSolidRender() const override;
 	bool isCubeShaped() const override;
-	int getRenderShape() const override;
-	void animateTick(Level*, const TilePos& pos, Random*) override;
-	HitResult clip(const Level*, const TilePos& pos, Vec3 a, Vec3 b) override;
-	bool mayPlace(const Level*, const TilePos& pos) const override;
-	void neighborChanged(Level*, const TilePos& pos, TileID tile) override;
-	void onPlace(Level*, const TilePos& pos) override;
-	void setPlacedOnFace(Level*, const TilePos& pos, Facing::Name face) override;
-	void tick(Level*, const TilePos& pos, Random*) override;
+	eRenderShape getRenderShape() const override;
+	void animateTick(TileSource&, const TilePos& pos, Random*) override;
+	HitResult clip(const TileSource&, const TilePos& pos, Vec3 a, Vec3 b) override;
+	bool mayPlace(const TileSource&, const TilePos& pos) const override;
+	void neighborChanged(TileSource&, const TilePos& pos, TileID tile) override;
+	void onPlace(TileSource&, const TilePos& pos) override;
+	void setPlacedOnFace(TileSource&, const TilePos& pos, Facing::Name face) override;
+	void tick(TileSource&, const TilePos& pos, Random*) override;
 
-	bool checkCanSurvive(Level*, const TilePos& pos);
+	bool checkCanSurvive(TileSource&, const TilePos& pos);
 };

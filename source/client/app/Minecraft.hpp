@@ -9,22 +9,24 @@
 #pragma once
 
 #include "App.hpp"
-#include "common/CThread.hpp"
+#include "common/threading/CThread.hpp"
 #include "common/Mth.hpp"
 #include "common/Timer.hpp"
 #include "client/gui/Gui.hpp"
 #include "client/gui/Screen.hpp"
+#include "client/gui/ScreenChooser.hpp"
 #include "network/RakNetInstance.hpp"
 #include "network/NetEventCallback.hpp"
 #include "client/player/input/IInputHolder.hpp"
 #include "client/player/input/MouseHandler.hpp"
 #include "client/player/input/BuildActionIntention.hpp"
+#include "client/player/LocalPlayer.hpp"
 #include "client/renderer/GameRenderer.hpp"
 #include "client/renderer/LevelRenderer.hpp"
 #include "client/renderer/entity/EntityRenderDispatcher.hpp"
+#include "client/resources/ResourcePackManager.hpp"
 #include "client/sound/SoundEngine.hpp"
 #include "world/level/Level.hpp"
-#include "world/entity/LocalPlayer.hpp"
 #include "world/gamemode/GameMode.hpp"
 #include "world/gamemode/GameType.hpp"
 #include "world/particle/ParticleEngine.hpp"
@@ -37,45 +39,72 @@ public:
 	Minecraft();
 	virtual ~Minecraft();
 
+private:
+	void _levelGenerated();
+	void _resetPlayer(Player* player);
+	GameMode* _createGameMode(GameType gameType);
+	void _initGameModes();
+
+public:
 	int getLicenseId();
 	void setScreen(Screen * pScreen);
 	void releaseMouse();
 	void grabMouse();
+	void recenterMouse();
 	void tick();
 	void tickInput();
 	void saveOptions();
+	void saveOptionsAsync();
 	void handleBuildAction(const BuildActionIntention& action);
 	bool isLevelGenerated() const;
-	void selectLevel(const std::string&, const std::string&, int);
+    void selectLevel(const LevelSummary& ls, bool forceConversion = false);
+	void selectLevel(const std::string& levelDir, const std::string& levelName, const LevelSettings& levelSettings, bool forceConversion = false);
 	void setLevel(Level*, const std::string&, LocalPlayer*);
 	bool pauseGame();
 	bool resumeGame();
 	void leaveGame(bool bCopyMap);
+	void gotoMainMenu();
 	void hostMultiplayer();
 	void joinMultiplayer(const PingedCompatibleServer& serverInfo);
 	void cancelLocateMultiplayer();
 	void locateMultiplayer();
 	void tickMouse();
 	void handleCharInput(char chr);
+	void handleTextPaste(const std::string& text);
+	void handleTextPaste();
+	void handlePointerLocation(MenuPointer::Unit x, MenuPointer::Unit y);
+	void handlePointerPressedButtonPress();
+	void handlePointerPressedButtonRelease();
+	void handleKeyboardClosed();
 	void resetInput();
+	void reloadInput();
+	void resetInputMethod();
 	void sendMessage(const std::string& message);
-	void resetPlayer(Player* player);
-	void respawnPlayer(Player* player);
-	std::string getVersionString() const;
-	bool isTouchscreen() const;
+	void respawnPlayer();
+	void freeResources(bool bCopyMap);
+	void unloadLevel(bool bCopyMap);
+	std::string getVersionString(const std::string& str = Util::EMPTY_STRING) const;
+	bool useTouchscreen() const;
 	bool useSplitControls() const;
 	bool useController() const;
 
 	void setGameMode(GameType gameType);
+	GameMode* getLevelGameMode() const;
+	GameMode* getPlayerGameMode(Player& player) const;
+	GameMode* getLocalPlayerGameMode() const;
 
-	virtual void update() override;
-	virtual void init() override;
-	virtual void onGraphicsReset();
-	virtual void sizeUpdate(int newWidth, int newHeight) override;
+	void update() override;
+	void init() override;
+	void sizeUpdate(int newWidth, int newHeight) override;
+	void setTextboxText(const std::string& text) override;
+
+	virtual void reloadFancy(bool isFancy);
 	virtual int getFpsIntlCounter();
 
 	float getBestScaleForThisScreenSize(int width, int height);
-	void generateLevel(const std::string& unused, Level* pLevel);
+	void setupLevelRendering(Level* pLevel, Dimension* pDimension, Mob* pCamera);
+	void onClientStartedLevel(Level* pLevel, LocalPlayer* pLocalPlayer);
+	void generateLevel(const std::string& unused, Level& level);
 	void prepareLevel(const std::string& unused);
 	bool isOnline() const;
 	bool isOnlineClient() const;
@@ -84,20 +113,24 @@ public:
 
 	const char* getProgressMessage();
 	LevelStorageSource* getLevelSource();
-	ItemInstance* getSelectedItem();
-	Options* getOptions() const { return m_options; }
-	
-private:
-	void _reloadInput();
-	void _levelGenerated();
-	GameMode* createGameMode(GameType gameType, Level& level);
+	ItemStack& getSelectedItem();
+	Options* getOptions() const { return m_pOptions; }
+	ScreenChooser* getScreenChooser();
+	UITheme getUiTheme();
+	//const Entity& getCameraEntity() const { return *m_pCameraEntity; }
 
 private:
+	static Minecraft* _singletonPtr;
     // Value provided by the OS
     static float _renderScaleMultiplier;
+	static InputMethod::Type _inputMethod;
+
 public:
-    static float getRenderScaleMultiplier() { return _renderScaleMultiplier; }
-    static void setRenderScaleMultiplier(float value) { _renderScaleMultiplier = value; }
+	static Minecraft& singleton() { return *_singletonPtr; }
+    static float GetRenderScaleMultiplier() { return _renderScaleMultiplier; }
+    static void SetRenderScaleMultiplier(float value) { _renderScaleMultiplier = value; }
+	static InputMethod::Type GetInputMethod() { return _inputMethod; }
+	static void SetInputMethod(InputMethod::Type inputType) { _inputMethod = inputType; }
     
 public:
 	static int width, height;
@@ -106,18 +139,19 @@ public:
 	static const bool DEADMAU5_CAMERA_CHEATS;
 	static int customDebugId;
 
-private:
-	Logger *m_Logger;
-	Options *m_options;
+protected:
+	Options* m_pOptions;
+	ScreenChooser* m_pScreenChooser;
 
 public:
 	bool field_18;
 	bool m_bIsGamePaused;
+	ResourcePackManager* m_pResourceLoader;
 	LevelRenderer* m_pLevelRenderer;
 	GameRenderer* m_pGameRenderer;
 	ParticleEngine* m_pParticleEngine;
 	SoundEngine* m_pSoundEngine;
-	GameMode* m_pGameMode;
+	GameMode* m_gameModes[GAME_TYPES_COUNT];
 	Textures* m_pTextures;
 	Font* m_pFont;
 	RakNetInstance* m_pRakNetInstance;
@@ -128,8 +162,8 @@ public:
 	User* m_pUser;
 	Level* m_pLevel;
 	LocalPlayer* m_pLocalPlayer;
-	Mob* m_pMobPersp; // why is there a duplicate?
-	Gui m_gui;
+	Mob* m_pCameraEntity;
+	Gui* m_pGui;
 	int field_D0C;
 	CThread* m_pPrepThread;
 	Screen* m_pScreen;
@@ -140,9 +174,9 @@ public:
 	bool m_bIsTouchscreen;
 	HitResult m_hitResult;
 	int m_progressPercent;
-	std::string m_externalStorageDir;
 	Timer m_timer;
 	bool m_bPreparingLevel;
+	bool m_bPendingResize;
 	LevelStorageSource* m_pLevelStorageSource; // TODO
 	int field_D9C;
 	int field_DA0;
@@ -153,7 +187,7 @@ public:
 	bool m_bHasQueuedScreen;
 	Screen* m_pQueuedScreen;
 	int m_licenseID;
-	ItemInstance m_CurrItemInstance;
+	ItemStack m_CurrItemStack;
 
 	// in 0.8. Offset 3368
 	double m_fDeltaTime, m_fLastUpdated;

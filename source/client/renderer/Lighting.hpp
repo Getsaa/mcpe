@@ -1,15 +1,12 @@
 #pragma once
 
-#include <vector>
-
+class Matrix;
 class Lighting
 {
-private:
-	static float lb[4];
-
 public:
-	static void turnOff();
-	static void turnOn();
-	
-	static float *getBuffer(float a, float b, float c, float d);
+	static void turnOff(bool teardown = true);
+	static void turnOn(bool init = true);
+	static void turnOn(const Matrix& matrix);
+	static void turnOnItems();
+	static void turnOnConsoleUiItems();
 };

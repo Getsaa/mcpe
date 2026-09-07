@@ -8,7 +8,9 @@
 
 #pragma once
 
-#include "compat/LegacyCPPCompatibility.hpp"
+#include "compat/LegacyCPP.hpp"
+
+#include "client/options/Options.hpp"
 
 class Player;
 
@@ -20,6 +22,10 @@ enum
 	INPUT_RIGHT,
 	INPUT_JUMP,
 	INPUT_SNEAK,
+	INPUT_FORWARDLEFT,
+	INPUT_FORWARDRIGHT,
+	INPUT_FLYUP,
+	INPUT_FLYDOWN
 };
 
 class IMoveInput
@@ -30,7 +36,7 @@ public:
 
 	virtual void releaseAllKeys();
 	virtual void render(float f);
-	virtual void setKey(int eventKey, bool eventKeyState);
+	virtual void setKey(UserActionID, bool eventKeyState);
 	virtual void setScreenSize(int width, int height);
 	virtual void tick(Player*);
 
@@ -39,6 +45,7 @@ public:
 	float m_vertInput;
 	bool m_bWasJumping;
 	bool m_bJumping;
+	bool m_bFlyUp;
 	bool m_bSneaking;
 };
 

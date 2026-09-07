@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 #include <stdint.h>
+#include <stdarg.h>
 
 class Util
 {
@@ -25,6 +26,29 @@ public:
 
 	static std::string vformat(const char* fmt, va_list argPtr);
 	static std::string format(const char* fmt, ...);
+
+	static std::string urlEncode(const std::string& str);
+
+	static bool isValidPath(const std::string& path);
+	// Returns the name of a file, without its extension
+	static std::string getFileName(const std::string& path);
+	static std::string getExtension(const std::string& path);
+
+	static std::string toString(int8_t value);
+	static std::string toString(uint8_t value);
+	static std::string toString(int16_t value);
+	static std::string toString(uint16_t value);
+	static std::string toString(int32_t value);
+	static std::string toString(uint32_t value);
+	static std::string toString(int64_t value);
+	static std::string toString(uint64_t value);
+	static std::string toString(float value);
+	static std::string toString(double value);
+#ifndef MC_NO_WSTRING
+	static std::string toString(const wchar_t* str);
+	static std::string toString(const std::wstring& str);
+	static std::wstring toWideString(const std::string& str);
+#endif
 
 	template<typename T>
 	static bool remove(std::vector<T>& vec, const T& t)
@@ -53,7 +77,6 @@ public:
 		return removed;
 	}
 
-	// @TODO: reverse the actual thing? This is something different, but I'm lazy. It uses std::string::replace
 	static void stringReplace(std::string& in, const std::string& what, const std::string& with)
 	{
 		//snippet from Zahlman's post on gamedev:  http://www.gamedev.net/community/forums/topic.asp?topic_id=372125
@@ -67,14 +90,22 @@ public:
 		}
 	}
 
+	static void stringReplace(std::string& in, char what, char with)
+	{
+		for (size_t i = 0; (i = in.find(what, i)) != std::string::npos; i++)
+		{
+			in[i] = with;
+		}
+	}
+
 	static int32_t hashCode(const std::string& str)
 	{
 		int32_t result = 0;
 
 		const size_t size = str.size();
-		for (int i = 0; i < size; i++)
+		for (size_t i = 0; i < size; ++i)
 		{
-			result = result * 31 + str.at(i);
+			result = result * 31 + str[i];
 		}
 
 

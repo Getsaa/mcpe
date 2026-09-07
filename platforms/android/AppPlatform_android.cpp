@@ -9,7 +9,8 @@
 #include <sstream>
 
 #include "AppPlatform_android.hpp"
-#include "SoundSystemSL.hpp"
+#include "CustomSoundSystem.hpp"
+#include "common/Logger.hpp"
 #include "client/player/input/Mouse.hpp"
 
 #include "stb_image.h"
@@ -101,24 +102,6 @@ int AppPlatform_android::getUserInputStatus()
 	return m_UserInputStatus;
 }
 
-void AppPlatform_android::createUserInput()
-{
-	m_UserInput.clear();
-	m_UserInputStatus = -1;
-
-	switch (m_DialogType)
-	{
-		case DLG_CREATE_WORLD:
-		{
-			// some placeholder for now
-			m_UserInput.push_back("New World");
-			m_UserInput.push_back("123456");
-			m_UserInputStatus = 1;
-			break;
-		}
-	}
-}
-
 void AppPlatform_android::showDialog(eDialogType type)
 {
 	m_DialogType = type;
@@ -134,39 +117,21 @@ std::string AppPlatform_android::getDateString(int time)
 	return std::string(buffer);
 }
 
-Texture AppPlatform_android::loadTexture(const std::string& str, bool bIsRequired)
+void AppPlatform_android::setVSyncEnabled(bool enabled)
 {
-	std::string realPath = str;
-	if (realPath.size() && realPath[0] == '/')
-		// trim it off
-		realPath = realPath.substr(1);
+	EGLDisplay display = eglGetCurrentDisplay();
+	if (display == EGL_NO_DISPLAY)
+		return;
 
-	AAsset* asset = AAssetManager_open(m_app->activity->assetManager, str.c_str(), AASSET_MODE_BUFFER);
-	if (!asset) {
-		LOG_E("File %s couldn't be opened", realPath.c_str());
-		assert(!bIsRequired && "Hey, a texture couldn't be loaded");
-		return Texture(0, 0, nullptr, 1, 0);
-	}
-	size_t cnt = AAsset_getLength(asset);
-	unsigned char* buffer = (unsigned char*)calloc(cnt, sizeof(unsigned char));
-	AAsset_read(asset, (void*)buffer, cnt);
-	AAsset_close(asset);
-
-	int width = 0, height = 0, channels = 0;
-
-	stbi_uc* img = stbi_load_from_memory(buffer, cnt, &width, &height, &channels, STBI_rgb_alpha);
-	if (!img)
-	{
-		LOG_E("File %s couldn't be loaded via stb_image", realPath.c_str());
-		assert(!bIsRequired && "Hey, a texture couldn't be loaded");
-		return Texture(0, 0, nullptr, 1, 0);
-	}
-
-	free(buffer);
-	return Texture(width, height, (uint32_t*)img, 1, 0);
+	eglSwapInterval(display, enabled ? 1 : 0);
 }
 
-SoundSystem* const AppPlatform_android::getSoundSystem() const
+bool AppPlatform_android::isVSyncSwitchable() const
+{
+	return eglGetCurrentDisplay() != EGL_NO_DISPLAY;
+}
+
+SoundSystem* AppPlatform_android::getSoundSystem() const
 {
 	return m_pSoundSystem;
 }
@@ -174,7 +139,7 @@ SoundSystem* const AppPlatform_android::getSoundSystem() const
 void AppPlatform_android::initSoundSystem()
 {
 	if (!m_pSoundSystem)
-		m_pSoundSystem = new SoundSystemSL();
+		m_pSoundSystem = new SOUND_SYSTEM();
 	else
 		LOG_E("Trying to initialize SoundSystem more than once!");
 }
@@ -184,53 +149,6 @@ bool AppPlatform_android::isTouchscreen() const
 	return true;
 }
 
-/*
-std::vector<std::string> AppPlatform_android::getOptionStrings()
-{
-	std::vector<std::string> o;
-
-	//o.push_back("mp_username");
-	//o.push_back("iProgramInCpp");
-
-	std::ifstream ifs("options.txt");
-	if (!ifs.is_open())
-		return o;
-
-	std::string str;
-	while (true)
-	{
-		if (!std::getline(ifs, str, '\n'))
-			break;
-
-		if (str.empty() || str[0] == '#')
-			continue;
-
-		std::stringstream ss;
-		ss << str;
-
-		std::string key, value;
-		if (std::getline(ss, key, '|') && std::getline(ss, value))
-		{
-			o.push_back(key);
-			o.push_back(value);
-		}
-	}
-
-	return o;
-}
-
-void AppPlatform_android::setOptionStrings(const std::vector<std::string>& str)
-{
-	assert(str.size() % 2 == 0);
-
-	std::ofstream os("options.txt");
-
-	os << "#Config file for Minecraft PE.  The # at the start denotes a comment, removing it makes it a command.\n\n";
-	
-	for (int i = 0; i < int(str.size()); i += 2)
-		os << str[i] << '|' << str[i + 1] << '\n';
-}
-*/
 void AppPlatform_android::setScreenSize(int width, int height)
 {
 	m_ScreenWidth = width;
@@ -284,12 +202,12 @@ void AppPlatform_android::setShiftPressed(bool b)
 	m_bShiftPressed = b;
 }
 
-void AppPlatform_android::showKeyboard(int x, int y, int w, int h)
+void AppPlatform_android::showKeyboard(LocalPlayerID playerId, const VirtualKeyboard& keyboard)
 {
 	changeKeyboardVisibility(true);
 }
 
-void AppPlatform_android::hideKeyboard()
+void AppPlatform_android::hideKeyboard(LocalPlayerID playerId)
 {
 	changeKeyboardVisibility(false);
 }
@@ -344,16 +262,40 @@ void AppPlatform_android::changeKeyboardVisibility(bool bShown)
 
 		// lInputMethodManager.hideSoftInput(...).
 		jmethodID MethodHideSoftInput = pEnv->GetMethodID(ClassInputMethodManager, "hideSoftInputFromWindow","(Landroid/os/IBinder;I)Z");
-		jboolean lResult = pEnv->CallBooleanMethod(lInputMethodManager, MethodHideSoftInput,lBinder, flags);
+		pEnv->CallBooleanMethod(lInputMethodManager, MethodHideSoftInput,lBinder, flags);
 
 		m_bIsKeyboardShown = false; // just treat it as hidden anyways why not
 	}
 	pVM->DetachCurrentThread();
 }
 
-int AppPlatform_android::getKeyboardUpOffset()
+unsigned int AppPlatform_android::getKeyboardUpOffset() const
 {
 	// @TODO
 	// For now we'll just return 1/2 of the screen height. That ought to cover most cases.
 	return m_ScreenHeight / 2;
+}
+
+AssetFile AppPlatform_android::readAssetFile(const std::string& str, bool quiet) const
+{
+	std::string realPath = str;
+	if (realPath.size() && realPath[0] == '/')
+		// trim it off
+		realPath = realPath.substr(1);
+
+	AAsset* asset = AAssetManager_open(m_app->activity->assetManager, str.c_str(), AASSET_MODE_BUFFER);
+	if (!asset) {
+		if (!quiet) LOG_E("File %s couldn't be opened", realPath.c_str());
+		return AssetFile();
+	}
+	size_t cnt = AAsset_getLength(asset);
+	unsigned char* buffer = new unsigned char[cnt];
+	AAsset_read(asset, (void*)buffer, cnt);
+	AAsset_close(asset);
+	return AssetFile(ssize_t(cnt), buffer);
+}
+
+std::string AppPlatform_android::getAssetPath(const std::string& path) const
+{
+	return path;
 }

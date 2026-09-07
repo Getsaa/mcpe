@@ -1,0 +1,37 @@
+#include "Web.hpp"
+#include "world/level/TileSource.hpp"
+
+Web::Web(TileID id, int texture) : Tile(id, texture, Material::web)
+{
+	m_renderLayer = RENDER_LAYER_ALPHATEST;
+}
+
+eRenderShape Web::getRenderShape() const
+{
+	return SHAPE_CROSS;
+}
+
+bool Web::isCubeShaped() const
+{
+	return false;
+}
+
+bool Web::isSolidRender() const
+{
+	return false;
+}
+
+void Web::entityInside(TileSource&, const TilePos& pos, Entity* entity) const
+{
+	entity->m_bIsInWeb = true;
+}
+
+int Web::getResource(TileData data, Random* random) const
+{
+	return Item::string->m_itemID;
+}
+
+AABB* Web::getAABB(const TileSource& source, const TilePos& pos)
+{
+	return nullptr;
+}

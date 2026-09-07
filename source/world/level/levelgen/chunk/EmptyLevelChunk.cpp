@@ -41,6 +41,11 @@ void EmptyLevelChunk::removeEntity(Entity*, int vec)
 
 }
 
+void EmptyLevelChunk::updateEntity(Entity* pEnt)
+{
+
+}
+
 bool EmptyLevelChunk::isSkyLit(const ChunkTilePos& pos)
 {
 	return false;
@@ -86,19 +91,19 @@ bool EmptyLevelChunk::setTile(const ChunkTilePos& pos, TileID tile)
 	return true;
 }
 
-bool EmptyLevelChunk::setTileAndData(const ChunkTilePos& pos, TileID tile, int data)
+bool EmptyLevelChunk::setTileAndData(const ChunkTilePos& pos, TileID tile, TileData data)
 {
 	return true;
 }
 
-int EmptyLevelChunk::getData(const ChunkTilePos& pos)
+TileData EmptyLevelChunk::getData(const ChunkTilePos& pos)
 {
 	return 0;
 }
 
-void EmptyLevelChunk::setData(const ChunkTilePos& pos, int data)
+bool EmptyLevelChunk::setData(const ChunkTilePos& pos, TileData data)
 {
-
+	return false;
 }
 
 void EmptyLevelChunk::recalcHeight(const ChunkTilePos& pos)

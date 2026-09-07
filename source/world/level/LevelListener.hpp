@@ -10,23 +10,27 @@
 
 #include <string>
 #include "world/entity/TripodCamera.hpp"
+#include "world/level/LevelEvent.hpp"
+#include "world/level/TileEvent.hpp"
 
 class LevelListener
 {
 public:
 	virtual ~LevelListener() {}
-	virtual void tileChanged(const TilePos& pos);
+	virtual void setTilesDirty(const TilePos& min, const TilePos& max) {}
+	virtual void tileChanged(const TilePos& pos) {}
 	virtual void tileBrightnessChanged(const TilePos& pos);
-	virtual void setTilesDirty(const TilePos& min, const TilePos& max);
-	virtual void allChanged();
-	virtual void playSound(const std::string&, const Vec3& pos, float, float);
-	virtual void takePicture(TripodCamera*, Entity*);
-	virtual void addParticle(const std::string&, const Vec3& pos, const Vec3& dir);
-	virtual void playMusic(const std::string&, float, float, float, float);
-	virtual void entityAdded(Entity*);
-	virtual void entityRemoved(Entity*);
-	virtual void skyColorChanged();
-	virtual void timeChanged(uint32_t time);
-	virtual void playStreamingMusic(const std::string&, int, int, int);
+	virtual void skyColorChanged() {}
+	virtual void allChanged() {}
+	virtual void takePicture(TripodCamera*, Entity*) {}
+	virtual void addParticle(const std::string&, const Vec3& pos, const Vec3& dir) {}
+	virtual void playSound(const std::string&, const Vec3& pos, float volume, float pitch) {}
+	virtual void playMusic(const std::string&, float, float, float, float) {}
+	virtual void playStreamingMusic(const std::string&, const TilePos& pos) {}
+	virtual void entityAdded(Entity*) {}
+	virtual void entityRemoved(Entity*) {}
+	virtual void levelEvent(const LevelEvent& event) {}
+	virtual void tileEvent(const TileEvent& event) {}
+	virtual void timeChanged(uint32_t time) {}
 };
 

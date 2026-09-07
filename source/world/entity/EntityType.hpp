@@ -61,6 +61,7 @@ public:
 		VINDICATOR,
 		PHANTOM,
 		RAVAGER,
+		GIANT,
 
 		ARMOR_STAND = 61,
 		TRIPOD_CAMERA,
@@ -153,7 +154,7 @@ public:
 
 		TRADER_LLAMA = 157,
 
-		CHEST_BOAT = 218,
+		CHEST_BOAT = 218
 	};
 	typedef const std::string& Name;
 

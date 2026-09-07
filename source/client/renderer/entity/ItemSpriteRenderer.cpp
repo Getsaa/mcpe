@@ -2,36 +2,53 @@
 #include "EntityRenderDispatcher.hpp"
 
 ItemSpriteRenderer::ItemSpriteRenderer(int sprite)
+	: m_sprite(sprite)
+	, m_bCompiled(false)
 {
-	m_sprite = sprite;
 }
 
-void ItemSpriteRenderer::render(Entity* pEntity, float x, float y, float z, float a, float b)
+void ItemSpriteRenderer::_compile()
 {
-	glPushMatrix();
-	glTranslatef(x, y, z);
-	glEnable(GL_RESCALE_NORMAL);
-	glScalef(0.5f, 0.5f, 0.5f);
-	bindTexture(C_ITEMS_NAME);
-	
-	/*float texU_1 = float(16 * (m_sprite % 16))     / 256.0f;
-	float texU_2 = float(16 * (m_sprite % 16 + 1)) / 256.0f;
-	float texV_1 = float(16 * (m_sprite / 16))     / 256.0f;
-	float texV_2 = float(16 * (m_sprite / 16 + 1)) / 256.0f;*/
-
-	glRotatef(180.0f - m_pDispatcher->m_rot.x, 0.0f, 1.0f, 0.0f);
-	glRotatef(-m_pDispatcher->m_rot.y, 1.0f, 0.0f, 0.0f);
-
 	Tesselator& t = Tesselator::instance;
-	t.begin();
-	t.color(1.0f, 1.0f, 1.0f);
-	t.normal(0.0f, 1.0f, 0.0f);
+	t.begin(4);
+	t.normal(Vec3::UNIT_Y);
 	t.vertexUV(-0.5f, -0.25f, 0.0f, float(16 * (m_sprite % 16))     / 256.0f, float(16 * (m_sprite / 16 + 1)) / 256.0f);
 	t.vertexUV(+0.5f, -0.25f, 0.0f, float(16 * (m_sprite % 16 + 1)) / 256.0f, float(16 * (m_sprite / 16 + 1)) / 256.0f);
 	t.vertexUV(+0.5f, +0.75f, 0.0f, float(16 * (m_sprite % 16 + 1)) / 256.0f, float(16 * (m_sprite / 16))     / 256.0f);
 	t.vertexUV(-0.5f, +0.75f, 0.0f, float(16 * (m_sprite % 16))     / 256.0f, float(16 * (m_sprite / 16))     / 256.0f);
-	t.draw();
+	m_mesh = t.end();
 
-	glDisable(GL_RESCALE_NORMAL);
-	glPopMatrix();
+	m_bCompiled = true;
+}
+
+void ItemSpriteRenderer::render(const Entity& entity, const Vec3& pos, float rot, float a)
+{
+	MatrixStack::Ref matrix = MatrixStack::World.push();
+
+	matrix->translate(pos);
+
+	matrix->scale(0.5f);
+
+	bindTexture(C_ITEMS_NAME);
+
+	// face the camera
+	matrix->rotate(180.0f - m_pDispatcher->m_rot.yaw, Vec3::UNIT_Y);
+	matrix->rotate(-m_pDispatcher->m_rot.pitch, Vec3::UNIT_X);
+
+	if (!m_bCompiled)
+		_compile();
+
+	m_mesh.render(m_shaderMaterials.entity_alphatest);
+}
+
+void ItemSpriteRenderer::onGraphicsReset()
+{
+	m_mesh.reset();
+	m_bCompiled = false;
+}
+
+Color ItemSpriteRenderer::getOverlayColor(const Entity& entity, float a) const
+{
+	// we don't recolor item sprites under any circumstances, this would lead to fireballs glowing orange in PE
+	return Color::NIL;
 }

@@ -15,6 +15,7 @@ public:
 	void addEntity(Entity*) override;
 	void removeEntity(Entity*) override;
 	void removeEntity(Entity*, int vec) override;
+	void updateEntity(Entity* pEnt) override;
 	bool isSkyLit(const ChunkTilePos& pos) override;
 	void lightLava() override;
 	void recalcBlockLights() override;
@@ -24,9 +25,9 @@ public:
 	void markUnsaved() override;
 	TileID getTile(const ChunkTilePos& pos) override;
 	bool setTile(const ChunkTilePos& pos, TileID tile) override;
-	bool setTileAndData(const ChunkTilePos& pos, TileID tile, int data) override;
-	int  getData(const ChunkTilePos& pos) override;
-	void setData(const ChunkTilePos& pos, int data) override;
+	bool setTileAndData(const ChunkTilePos& pos, TileID tile, TileData data) override;
+	TileData getData(const ChunkTilePos& pos) override;
+	bool setData(const ChunkTilePos& pos, TileData data) override;
 	void recalcHeight(const ChunkTilePos& pos) override;
 	bool isEmpty() override;
 };

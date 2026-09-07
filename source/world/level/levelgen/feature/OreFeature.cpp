@@ -7,21 +7,21 @@
  ********************************************************************/
 
 #include "Feature.hpp"
-#include "world/level/Level.hpp"
+#include "world/level/TileSource.hpp"
 
-OreFeature::OreFeature(int id, int count)
+OreFeature::OreFeature(TileID id, int count)
 {
 	m_ID = id;
 	m_count = count;
 }
 
-bool OreFeature::place(Level* level, Random* random, const TilePos& pos)
+bool OreFeature::place(TileSource& source, Random* random, const TilePos& pos)
 {
 	float fAng = random->nextFloat() * float(M_PI);
 
 	float d0 = float(pos.x + 8) + 0.125f * float(m_count) * Mth::sin(fAng);
 	float d1 = float(pos.x + 8) - 0.125f * float(m_count) * Mth::sin(fAng);
-	float d2 = float(pos.z + 8) - 0.125f * float(m_count) * Mth::cos(fAng);
+	float d2 = float(pos.z + 8) + 0.125f * float(m_count) * Mth::cos(fAng);
 	float d3 = float(pos.z + 8) - 0.125f * float(m_count) * Mth::cos(fAng);
 
 	float d4 = float(random->nextInt(3) + pos.y + 2);
@@ -66,8 +66,8 @@ bool OreFeature::place(Level* level, Random* random, const TilePos& pos)
 					if (distX * distX + distY * distY + distZ * distZ >= 1.0f)
 						continue;
 
-					if (level->getTile(tp) == Tile::rock->m_ID)
-						level->setTileNoUpdate(tp, m_ID);
+					if (source.getTile(tp) == Tile::rock->m_ID)
+						source.setTileNoUpdate(tp, m_ID);
 				}
 			}
 		}

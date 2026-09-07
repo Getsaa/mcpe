@@ -1,9 +1,11 @@
 #include "PatchManager.hpp"
+
+#include "common/Logger.hpp"
 #include "client/app/AppPlatform.hpp"
-#include "common/Utils.hpp"
+#include "client/resources/Resource.hpp"
 #include "world/tile/Tile.hpp"
 #include "world/item/Item.hpp"
-#include "thirdparty/GL/GL.hpp"
+#include "renderer/RenderContextImmediate.hpp"
 
 #define PM_SEPARATOR ('|')
 
@@ -25,13 +27,13 @@ PatchManager::PatchManager()
 
 void PatchManager::LoadPatchData(const std::string& patchData)
 {
-	std::stringstream patchDataStream(patchData);
+	std::istringstream patchDataStream(patchData);
 	std::string currLine;
 
 	while (std::getline(patchDataStream, currLine))
 	{
 		if (currLine.empty()) continue;
-        if (currLine.at(currLine.size() - 1) == '\r')
+        if (currLine[currLine.size() - 1] == '\r')
         {
             // Ignore Windows line-endings when processing file on Unix systems
             // How would we possibly standardize this if the game isn't the thing writing the file?
@@ -41,17 +43,10 @@ void PatchManager::LoadPatchData(const std::string& patchData)
 		if (currLine[0] == '#') continue;
 
 		std::string command;
-		std::stringstream lineStream(currLine);
+		std::istringstream lineStream(currLine);
 		// read command type
 		if (!std::getline(lineStream, command, PM_SEPARATOR))
 			continue;
-        
-        /*if (command[0] == '\n')
-        {
-            // We'll end up here if we're on a platform that doesn't use Windows line-endings
-            // So let's just ignore them
-            command = command.erase(0, 1);
-        }*/
 
 		if (command == "stop_now")
 		{
@@ -155,70 +150,43 @@ void PatchManager::LoadPatchData(const std::string& patchData)
 			ReadInt(lineStream, m_nMetalSideYOffset);
 			continue;
 		}
-		if (command == "grass_sides_tint")
-		{
-			ReadBool(lineStream, m_bGrassSidesTinted);
-
-			if (m_bGrassSidesTinted)
-				// push a magic value so we can determine whether to disable it if the file doesn't exist
-				m_patchData.push_back(PatchData(TYPE_TERRAIN, 100, 100, "grass_side_transparent.png"));
-
-			continue;
-		}
 
 		LOG_W("Unknown command %s from patch data.", command.c_str());
 	}
 }
 
-void PatchManager::PatchTextures(AppPlatform* pAppPlatform, ePatchType patchType)
+void PatchManager::PatchTextures(TextureData& texture, ePatchType patchType)
 {
+	mce::RenderContext& renderContext = mce::RenderContextImmediate::get();
+
+	texture.m_texture.enableWriteMode(renderContext);
+
 	// Use glTexSubImage2D to patch the terrain.png texture on the fly.
-	for (int i = 0; i < int(m_patchData.size()); i++)
+	for (size_t i = 0; i < m_patchData.size(); i++)
 	{
 		PatchData& pd = m_patchData[i];
 		if (pd.m_type != patchType)
 			continue;
 
-		bool bDisableFancyGrassIfFailed = false;
-
-		// got the magic value, we can determine whether to disable fancy pants grass if the file doesn't exist
-		if (pd.m_destX == 1600 && pd.m_destY == 1600 && pd.m_type == TYPE_TERRAIN)
-		{
-			pd.m_destX = 4 * 16;
-			pd.m_destY = 5 * 16;
-
-			bDisableFancyGrassIfFailed = true;
-		}
-
 		// N.B. Well, in some cases, you do want things to fail nicely.
-		Texture texture = pAppPlatform->loadTexture("patches/" + pd.m_filename, false);
-		if (!texture.m_pixels || !texture.m_width || !texture.m_height)
+		TextureData patchTex = Resource::loadTexture("patches/" + pd.m_filename);
+		if (patchTex.isEmpty())
 		{
 			LOG_W("Image %s was not found?! Skipping", pd.m_filename.c_str());
-			if (bDisableFancyGrassIfFailed)
-				m_bGrassSidesTinted = false;
 			continue;
 		}
 
-		glTexSubImage2D(
-			GL_TEXTURE_2D,
-			0,
-			pd.m_destX,
-			pd.m_destY,
-			texture.m_width,
-			texture.m_height,
-			GL_RGBA,
-			GL_UNSIGNED_BYTE,
-			texture.m_pixels
-		);
+		patchTex.m_imageData.forceRGBA();
 
-		SAFE_DELETE_ARRAY(texture.m_pixels);
+		texture.m_texture.subBuffer(renderContext, patchTex.getData(), pd.m_destX, pd.m_destY, patchTex.m_imageData.m_width, patchTex.m_imageData.m_height, 0);
 	}
+
+	texture.m_texture.disableWriteMode(renderContext);
 }
 
 void PatchManager::PatchTiles()
 {
-	for (int i = 0; i < int(m_patchData.size()); i++)
+	for (size_t i = 0; i < m_patchData.size(); i++)
 	{
 		PatchData& pd = m_patchData[i];
 		if (pd.m_type != TYPE_FRAME)
@@ -232,7 +200,7 @@ void PatchManager::PatchTiles()
 
 		if (Item::items[pd.m_destID])
 		{
-			Item::items[pd.m_destID]->m_icon = pd.m_frameNo;
+			Item::items[pd.m_destID]->setIcon(pd.m_frameNo);
 			continue;
 		}
 
@@ -253,11 +221,6 @@ int PatchManager::GetMetalSideYOffset()
 bool PatchManager::IsGlassSemiTransparent()
 {
 	return m_bGlassSemiTransparent;
-}
-
-bool PatchManager::IsGrassSidesTinted()
-{
-	return m_bGrassSidesTinted;
 }
 
 void PatchManager::ReadBool(std::istream& is, bool& b)

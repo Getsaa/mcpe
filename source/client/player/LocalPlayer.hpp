@@ -1,0 +1,85 @@
+/********************************************************************
+	Minecraft: Pocket Edition - Decompilation Project
+	Copyright (C) 2023 iProgramInCpp
+
+	The following code is licensed under the BSD 1 clause license.
+	SPDX-License-Identifier: BSD-1-Clause
+ ********************************************************************/
+
+#pragma once
+
+#include "world/entity/Player.hpp"
+#include "client/player/input/IMoveInput.hpp"
+#include "client/player/input/User.hpp"
+
+class Minecraft;
+
+class LocalPlayer : public Player
+{
+private:
+	void _init();
+
+public:
+	LocalPlayer(Minecraft*, Level&, User*, GameType, DimensionId);
+	virtual ~LocalPlayer();
+
+protected:
+	bool _trySendPosition();
+	bool _trySendSelectedItem();
+
+public:
+	void reset() override;
+	void animateRespawn() override;
+	void die(Entity* pCulprit) override;
+	void aiStep() override;
+	bool isSneaking() const override;
+	void move(const Vec3& pos) override;
+	void tick() override;
+	void updateAi() override;
+	void addAdditionalSaveData(CompoundTag& tag) const override;
+	void readAdditionalSaveData(const CompoundTag& tag) override;
+	bool isLocalPlayer() const override { return true; }
+	bool interpolateOnly() const override { return false; }
+	void setPlayerGameType(GameType gameType) override;
+	void swing() override;
+	void startCrafting(const TilePos&) override;
+	void openFurnace(FurnaceTileEntity* furnace) override;
+	void openContainer(Container* container) override;
+	void closeContainer() override;
+	void openTrap(DispenserTileEntity* tileEntity) override;
+	//void openTextEdit(SignTileEntity* tileEntity) override;
+	void take(Entity* pEnt, int count) override;
+
+	virtual void hurtTo(int newHealth);
+
+	void calculateFlight(const Vec3& pos);
+	void respawn();
+
+private:
+	// Made these private since they're only accessed by LocalPlayer
+	// multiplayer related
+	Vec3 m_lastSentPos;
+	Rot2 m_lastSentRot;
+	Container::StackID m_lastSelectedStackId;
+	int m_lastSelectedItemId;
+	int m_lastSelectedItemAuxValue;
+	// multiplayer related -- end
+
+public:
+	int field_BEC;
+	Vec3 field_BF0;
+	float field_BFC;
+	float field_C00;
+	float field_C04;
+	float field_C08;
+	float field_C0C;
+	float field_C10;
+	float field_C14;
+	float field_C18;
+	float field_C1C;
+	int m_nAutoJumpFrames;
+	Minecraft* m_pMinecraft;
+	IMoveInput* m_pMoveInput;
+	Rot2 m_renderArmRot;
+	Rot2 m_lastRenderArmRot;
+};

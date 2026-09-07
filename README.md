@@ -1,59 +1,106 @@
-# ReMinecraftPE
+# NBCraft (NBC)
 
-This project aims to create a custom Minecraft experience based on Minecraft: Pocket Edition as of 2011. It's
-based on Minecraft PE v0.1.3.
+## Disclaimer
+**NBCraft is not affiliated or associated with Minecraft, Mojang AB, or Microsoft.**<br>
+To be absolutely clear:<br>
+**THIS IS NOT AN OFFICIAL MINECRAFT PRODUCT AND IS NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT**
+
+## About
+This project aims to provide a customizable, cross-platform, legacy mining experience.<br>
+The code is based on a decompilation of Minecraft: Pocket Edition (v0.1.3) as of 2011, which itself is a port of Minecraft: Java Edition (Beta 1.3-1.7.3).<br>
+The decompilation was performed primarily using [IDA](https://hex-rays.com/ida-pro) in conjunction with Android builds of MCPE, since these contain info such as function and class names.<br>
 
 **Its goals are:**
-* To add Quality-of-Life features to Minecraft: Pocket Edition, such as a brighter color gamut, an in-game
-  options menu, etc.
-* To add features that were in Minecraft Alpha and the early Betas in 2011. (before and during Minecraft PE's
-  development - this excludes hunger, for example, as it was added in Beta 1.8)
+* To add features from Minecraft Beta 1.7.3 and below.
+* To add togglable edition-specific aesthetic features.
+  Some examples include:
+  * Legacy Console Edition UI theme, gamma, and mipmaps
+  * Pocket Edition UI theme and sky colors
+  * Java Edition UI theme
+  * Normal lighting (something Pocket Edition lacked)
+  * Alpha title logo
+* To (in the future) provide a cross-platform modding API in the form of [WebAssembly](https://webassembly.org/) modules, giving more creative control to the community.
 * To keep the source code layout similar to the original Minecraft PE (reconstructed from clues hidden within
   certain versions of the game, such as the 0.1.0 touch prototype/debug build)
-* To port the game to more platforms, such as Windows (including older versions), Xbox 360, Wii, and more.
-  Currently there are ports for:
-	* Windows XP-11
+* To add support for as many platforms as possible, such as the PlayStation 3, Wii, and more.
+  Currently, the following platforms are supported:
+	* Windows (95 and above; thanks to [iProgramInCpp](https://github.com/iProgramMC))
 	* Android (thanks to [Stom](https://github.com/Stommm) for the help)
-	* Linux
+	* Linux (basically anything with POSIX.1-2001, C++98, SDL, and OpenGL support should also work without too much trouble)
 	* WebGL
-	* Mac OS (port by [BrentDaMage](https://github.com/BrentDaMage))
-	* iOS (3.0 and above; port by [BrentDaMage](https://github.com/BrentDaMage))
+	* macOS (10.4 and above; thanks to [BrentDaMage](https://github.com/BrentDaMage))
+	* iOS (3.1 and above; thanks to [BrentDaMage](https://github.com/BrentDaMage))
+	* Xbox 360 (thanks to [BrentDaMage](https://github.com/BrentDaMage))
 	* HaikuOS (thanks to [SanyaSho](https://github.com/SanyaSho))
-	* Xbox 360 (work in progress; port by [BrentDaMage](https://github.com/BrentDaMage))
+	* Nintendo Switch (thanks to [Bagietas](https://github.com/Bagietas))
 
 **We will not do the following:**
 * Add features added in or after Java Edition Beta 1.8
-* Backport features from versions newer than 0.9.0
-* Add The Nether or The End (probably)
+* Change the default aesthetic the game is shipped with. We're currently targeting Java Edition Beta 1.7.3.
+  Players can use the options menu to change the game's aesthetic to match the version/edition of their liking.
 * Add Herobrine
 * Add support for Minecraft Java or Minecraft Bedrock servers. (although LAN play with original MCPE clients
   will be supported for as long as possible)
-* Modify the project structure
 
-Note: While the original Minecraft PE v0.1.3 may not work on newer devices, ReMinecraftPE works on all Android devices.
+Note: While the original Minecraft PE v0.1.3 may not work on newer devices, NBCraft works on any of the platforms listed above.
 
-### This is the main modded version. For the original decompilation, see [ReMinecraftPE/mcped](https://github.com/ReMinecraftPE/mcped)
+### This is a modified version of [the original Minecraft PE v0.1.3 decompilation](https://github.com/nbcraft-org/mcped).
+
+## Where'd the name come from?
+We came up with "NBCraft" by combining the last names of the three original developers of Minecraft: Pocket Edition;<br>
+Aron Nieminen, Johan Bernhardsson, and Tommaso Checchi. While they were not the only developers working on Pocket Edition at the time, they played a pivotal role in the game's development.<br>
+Ultimately, these three guys made Minecraft what it is today.
 
 ## License information
 
-This project is licensed under the [BSD 1 clause license](LICENSE.md). However, it contains third party
+This project is licensed under the [BSD 1 clause license](LICENSE.txt). However, it contains third party
 software with different but compatible licenses:
 
 - [RakNet](https://github.com/facebookarchive/RakNet): [Licensed under the BSD 2 clause license](thirdparty/raknet/LICENSE)
 - [zlib](https://github.com/madler/zlib): [View license](thirdparty/zlib/LICENSE)
-- [GLES compatibility layer](https://github.com/TheBrokenRail/gles-compatibility-layer): [View license](https://github.com/TheBrokenRail/gles-compatibility-layer/blob/master/LICENSE). Embedded as a submodule.
 - [coi-serviceworker](https://github.com/gzuidhof/coi-serviceworker): [View license](https://github.com/gzuidhof/coi-serviceworker/blob/master/LICENSE). Embedded as a submodule.
+- [stb](https://github.com/nothings/stb): [View license]([https://github.com/gzuidhof/coi-serviceworker/blob/master/LICENSE](https://github.com/nothings/stb/blob/master/LICENSE)). Embedded as a submodule.
 
 ## WANT TO HELP?
 
-Want to help this project? [Here's a list of things left to do.](TODO.md)
+Want to help this project? Here's [a list of things to do.](https://github.com/nbcraft-org/nbcraft/issues)
+Once your code is tested and ready, [submit a pull request](https://github.com/nbcraft-org/nbcraft/pulls).
 
-## DISCLAIMER
+## USING BETA ASSETS
 
-This project **requires** you to have a copy of the Minecraft PE v0.1.3 apk (sha256 of the `libminecraftpe.so`
-inside: `157af341d13a54cc935bbe24c5e1cf3d02d7e40ec20f9859b9853c2e996ebd81`), before you can build.
+Prepare a copy of minecraft.jar from Beta 1.7.3.
+Then, copy the assets (including sounds and textures) into the "minecraft" resource pack within the project.<br>
+   Do this by performing the following:
+   - If you have [Python](https://www.python.org/) installed:
+     - Run the script in `tools/extract_jar.py`.
+     - Click and drag the "minecraft.jar" file onto the window.
+     - Hit enter, and the script should extract the JAR's assets into the "minecraft" resource pack.<br>
+   - If you do not have [Python](https://www.python.org/) installed, or do not wish to use the script, you can extract the assets manually by doing the following:
+     - Open minecraft.jar as if it were a ZIP file, either by renaming it to "minecraft.jar.zip", or by opening it with an unarchiver.
+     - Locate the the following files/folders in minecraft.jar, and copy them into the `game/assets/resource_packs/minecraft` directory of the project:
+	   ```
+	   armor
+	   art
+	   environment
+	   font
+	   gui
+	   item
+       misc
+	   mob
+	   terrain
+	   title
+	   pack.png
+	   particles.png
+	   terrain.png
+	   ```
+	   <br>
+   - Any Pocket Edition assets will need to be manually extracted from _Pocket Edition_.
+   - **To retrieve the sounds**, locate the `resources` directory in the `.minecraft` folder
+     - Copy the contents (e.g. `music`, `sound`, etc.) into the `game/assets/resource_packs/minecraft` directory of the project.
+<br>
+Finally, the "minecraft" resource pack should be automatically enabled by the game, assuming it can find it.
 
-## Setup
+## Prep for Building
 
 Before trying to build:
 
@@ -62,27 +109,64 @@ Before trying to build:
 git submodule init
 git submodule update
 ```
+This fetches the project's necessary dependencies.
 
-This fetches the three dependencies we have:
-- [zlib](https://github.com/madler/zlib)
-- [coi-serviceworker](https://github.com/gzuidhof/coi-serviceworker)
-- [gles-compatibility-layer](https://github.com/TheBrokenRail/gles-compatibility-layer.git)
-
-2. Load the sound assets into the `sound_data/` folder in the root of the project
-by **running the following command**:
-* `tools/grabsounds.py /path/to/the/apk/lib/armeabi-v7a/libminecraftpe.so`.
-
-After that, **prepare the assets folder** from the apk. You will need it for the platform specific
-build.
-
-## Building
+## How to Build
 
 ### Windows
 
-Click the thumbnail below to watch a video guide showcasing how to build ReMCPE.
-<a href="https://youtu.be/Tx1u7C2DCPI" target="_blank">
-  <img alt="How to Compile ReMCPE for Windows" src="http://i.ytimg.com/vi/Tx1u7C2DCPI/maxresdefault.jpg" />
-</a>
+There are 2 ways to build on Windows, the universal build script or Visual Studio.
+
+#### MinGW cross build script
+
+There is a script to easily build a version of NBCraft that works on all versions of Windows since 95.
+
+You will need to install the following dependencies
+
+##### Dependencies (Ubuntu/Debian)
+
+- `build-essential` (C/C++ Toolchain)
+- `cmake` (CMake)
+- `make` (GNU Make)
+- `wget` (Wget)
+- `zlib1g-dev` (ZLib)
+- `libgmp-dev libmpfr-dev libmpc-dev` (GCC dependencies)
+
+##### Dependencies (macOS)
+
+- Xcode command line tools
+- `cmake` (CMake)
+- `wget` (Wget)
+- `gmp mpfr mpc` (GCC dependencies)
+
+Then run
+
+```sh
+# to build for 64 bit machines
+export ARCH=x86_64
+# to build for pentium pro or newer
+export ARCH=i686
+# CPUs older than the pentium pro will likely have unplayable performance but will build.
+# to build for pentium or newer
+export ARCH=i586
+# to build for i486 or newer
+export ARCH=i486
+
+# (macOS only) if gmp, mpfr, and mpc were installed from homebrew
+export GMP="$(brew --prefix)"
+export MPFR="$(brew --prefix)"
+export MPC="$(brew --prefix)"
+# (macOS only) if gmp, mpfr, and mpc were installed from macports
+export GMP='/opt/local'
+export MPFR='/opt/local'
+export MPC='/opt/local'
+
+./platforms/windows/build.sh
+```
+
+An executable and assets folder will be placed at platforms/windows/build/NBCraft
+
+#### Visual Studio
 
 The project is configured to target Windows XP by default by using "v141_xp" build tools. If you would like
 to build with Windows XP support, please follow the guide [here](https://learn.microsoft.com/en-us/cpp/build/configuring-programs-for-windows-xp?view=msvc-170#install-the-windows-xp-platform-toolset)
@@ -110,69 +194,114 @@ Once you have the proper build tools installed (v140_xp or newer), you can now b
 After building, place the `assets` folder you have prepared in the working directory of the output executable.
 (if running from VS, it's in `game/`, otherwise, where your executable is)
 
-### WebAssembly
+### Unix-like systems (Linux, *BSD, Haiku)
 
-**Make sure you have CMake and Ninja installed. On Windows, the ninja executable must be in your PATH.**
-On Linux, the package names are `cmake` and `ninja-build` respectively if you are using apt.
-
-The game will use the assets from within the `game/` directory. So put your assets there if you want to build
-for wasm. Then run the `build-wasm` script corresponding to your platform (`-.sh` on linux/WSL, `-.bat` on
-windows).
-
-The output files will be in `./wasm/dist`, but you need to upload them to a web host (localhost works too) to
-use. (problem with Emscripten)
-
-**NOTE:** If you are using nginx, make sure the `*.wasm` file is served as `application/wasm`, and not
-`application/octet-stream`. This can be done by opening `/etc/nginx/mime.types` as root and adding
-`application/wasm wasm;` to the types block.
-
-### Linux
-
-This project uses CMake on Linux. Just like WebAssembly, the game assets must be placed in the `game/` directory.
+This project uses CMake on Unix-like systems.
 
 #### Dependencies (Ubuntu/Debian)
 
 - `build-essential` (C/C++ Toolchain)
 - `cmake` (CMake)
-- `ninja-build` (Ninja)
 - `libsdl2-dev` (SDL2)
 - `libopenal-dev` (OpenAL)
-- `zlib1g-dev` (ZLib)
+
+#### Dependencies (Haiku)
+
+- `libsdl2_devel` (SDL2)
+- `glu_devel mesa_devel` (Mesa)
+- `cmake` (CMake)
 
 #### How To Build
 
 ```sh
-cd platforms/sdl
 mkdir build && cd build
-cmake -GNinja ..
+cmake ..
 cmake --build .
 # Run
-./reminecraftpe
+./nbcraft
 ```
 
-### HaikuOS
+#### Makefile
 
-Dependencies:
-- `libsdl2_devel` (SDL2)
-- `glu_devel mesa_devel` (Mesa)
+For systems where cmake is not available, there is a GNU Makefile available. The dependencies are the same except without CMake.
+You should ***ALWAYS*** try to use CMake if you can, the Makefile is very limited and only intended for old or obscure systems that cannot run CMake.
+
+```sh
+make
+# Run
+cd build
+./nbcraft
+```
+
+### macOS
+
+There are 3 ways to build on macOS, Xcode, CMake, or the universal build script.
+
+#### Xcode
+
+Open the Xcode project at projects/xcode/NBCraft.xcodeproj and build either the NBCraftClient.SDL1 or NBCraftClient.SDL2 targets. You must have SDL 1.2 or SDL 2 installed from homebrew or macports.
+
+#### CMake
+
+You can build with CMake as detailed in the Unix-like systems section above.  You do not need to have SDL 2 installed.
+
+#### Universal build script
+
+There is a script to easily build a version of NBCraft that works on all versions of macOS since 10.4 tiger, and on PowerPC.
+
+You will need to install the following dependencies, in addition to the Xcode command line tools:
+
+- `cmake` (CMake) (The homebrew version of CMake currently has a bug that causes the build to fail, MacPorts is recommended)
+- `wget` (Wget)
+- `gmp mpfr mpc` (GCC dependencies)
+
+Then run
+
+```sh
+# if gmp, mpfr, and mpc were installed from homebrew
+export GMP="$(brew --prefix)"
+export MPFR="$(brew --prefix)"
+export MPC="$(brew --prefix)"
+# if gmp, mpfr, and mpc were installed from macports
+export GMP='/opt/local'
+export MPFR='/opt/local'
+export MPC='/opt/local'
+
+./platforms/macos/build.sh
+
+# run
+cd platforms/macos/build/NBCraft
+./nbcraft
+```
+
+### iOS
+
+#### Dependencies (Ubuntu/Debian cross build)
+
+- `clang` (Clang)
+- `llvm` (LLVM)
 - `cmake` (CMake)
-- `ninja` (Ninja)
+- `make` (GNU Make)
+- `pkg-config` (pkg-config)
+- `wget` (Wget)
+- `zip` (zip)
+- `libplist-utils` (plistutil)
+- `libplist-dev` (libplist development headers)
+- `libssl-dev` (OpenSSL development headers)
 
-To build, perform the same steps as on Linux.
- 
+#### How To Build
+
+```sh
+./platforms/ios/build.sh
+```
+
+Then install the IPA at `platforms/ios/build/NBCraft.ipa`
+
 ## Have seams when playing?
 
 I've had texture seams when playing Minecraft Classic, ClassiCube and this recreation of Minecraft PE, on a
 fresh new laptop. If seams bother you, and you are using an NVIDIA graphics card, go to the NVIDIA Control
 Panel, then in "Manage 3D Settings", change "Antialiasing - Mode" to "Application Controlled".
-
-## Notes on assets
-
-The terrain.png and related textures appear to have stayed the same between the E3 demo and the final release
-for Xperia PLAY. It appears to have been fetched before Java Edition Beta 1.4's release. This can be seen
-because the cookie's texture is missing. (it was added in Java Edition Beta 1.4)
-
-There are plans to create a custom script which downloads and sets up all assets needed for the game.
 
 ## Screenshots (from the decomp)
 
@@ -181,9 +310,3 @@ There are plans to create a custom script which downloads and sets up all assets
 ![In-game](screenshots/ingame.png)
 ![Inventory](screenshots/inventory.png)
 ![Pause menu](screenshots/pause_screen.png)
-
-## Enhancements
-
-ReMinecraftPE is an enhanced version of the original. To see the original, (mostly) as it was back in the day,
-[see the mcped repository](https://github.com/ReMinecraftPE/mcped).
-

@@ -9,27 +9,58 @@
 #pragma once
 
 #include <string>
+#include "world/phys/Rot2.hpp"
+#include "world/phys/Vec3.hpp"
 #include "SoundData.hpp"
+
+// Platform-agnostic sound settings //
+
+/* Handled by game */
+// This prevents step sounds from falling behind the player. Just guessing regarding the value
+#define SOUND_ATTENUATION_MIN_DISTANCE 2.0f
+// 20.0f in PE 0.7.0, 16.0f in Java
+#define SOUND_MAX_DISTANCE 16.0f
+
+/* Handled by SoundSystem */
+// Range: 0.0f - 1.0f
+// Default value for Paulscode is 0.03f
+// attModel == 2 on Java, which uses Paulscode's impl for calculating gain, rather than OpenAL's native rolloff factor
+#define SOUND_ROLLOFF_FACTOR 0.0f
+// 28 non-streaming channels in Paulscode
+#define SOUND_MAX_SOURCES 28
 
 class SoundSystem
 {
 public:
 	virtual ~SoundSystem();
 
+public:
 	virtual bool isAvailable();
-	virtual void setListenerPos(float x, float y, float z);
-	virtual void setListenerAngle(float yaw, float pitch);
-	virtual void load(const std::string& sound);
-	virtual void play(const std::string& sound);
-	virtual void pause(const std::string& sound);
-	virtual void stop(const std::string& sound);
-	virtual void playAt(const SoundDesc& sound, float x, float y, float z, float a, float b);
+	virtual void setListenerPos(const Vec3& pos);
+	virtual void setListenerAngle(const Rot2& rot);
+	virtual void setListenerVelocity(const Vec3& vel);
+
+	virtual void setMusicVolume(float vol);
+	virtual void setSoundVolume(float vol);
+
+	virtual void load(const std::string& soundPath, bool is3D, float minDis);
+	virtual void play(const std::string& soundPath);
+	virtual void pause(const std::string& soundPath);
+	virtual void stop(const std::string& soundPath);
+	virtual void playAt(const SoundDesc& sound, const Vec3& pos, float volume, float pitch);
+
+	virtual void playMusic(const std::string& soundPath);
+	virtual bool isPlayingMusic() const;
+	virtual bool isPlayingMusic(const std::string& soundPath) const;
+	virtual void stopMusic();
+	virtual void pauseMusic(bool state);
+
+	virtual void update();
     
     // Be prepared for these to be called regardless of engine state
-    virtual void startEngine();
-    virtual void stopEngine();
+    virtual void startEngine(); // called init in 0.10.0
+    virtual void stopEngine(); // called destroy in 0.10.0
     
     virtual void muteAudio();
     virtual void unMuteAudio();
 };
-

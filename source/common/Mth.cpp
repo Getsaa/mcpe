@@ -7,10 +7,12 @@
  ********************************************************************/
 
 #include <cmath>
+#include <cstring>
 #include <stdint.h>
 #include <stdlib.h>
 
 #include "Mth.hpp"
+#include "Utils.hpp"
 
 #define C_SIN_TABLE_MULTIPLIER (10430.0f) // (3320.0f * 3.14156f)
 
@@ -27,6 +29,9 @@ void Mth::initMth()
 	{
 		g_SinTable[i] = sinf(SIN_TABLE_INDEX_TO_ANG(i)); // value is 10430
 	}
+
+	// We need this for proper random music on the title screen
+	g_Random.setSeed(getRawTimeS());
 }
 
 int Mth::intFloorDiv(int a2, int a3)
@@ -42,17 +47,19 @@ float Mth::invSqrt(float number)
 	// It looks familiar. With IDA I get a convoluted mess. I'm going to assume
 	// they just stole it from Quake.
 
-	int32_t i;
 	float x2, y;
-	const float threehalfs = 1.5F;
+	const float threehalfs = 1.5f;
+	union {
+		float f;
+		int32_t i;
+	} un;
 
-	x2 = number * 0.5F;
-	y  = number;
-	i  = * ( int32_t * ) &y;                   // evil floating point bit level hacking
-	i  = 0x5f3759df - ( i >> 1 );              // what the fuck?
-	y  = * ( float * ) &i;
-	y  = y * ( threehalfs - ( x2 * y * y ) );  // 1st iteration
-  // y  = y * ( threehalfs - ( x2 * y * y ) );  // 2nd iteration, this can be removed
+	x2   = number * 0.5f;
+	un.f = number;                               // evil floating point bit level hacking
+	un.i = 0x5f3759df - ( un.i >> 1 );           // what the fuck?
+	y    = un.f;
+	y    = y * ( threehalfs - ( x2 * y * y ) );  // 1st iteration
+    // y    = y * ( threehalfs - ( x2 * y * y ) );  // 2nd iteration, this can be removed
 
 	return y;
 }
@@ -84,12 +91,34 @@ unsigned Mth::fastRandom()
 	return(x4 = x4 ^ (unsigned(x4) >> 19) ^ x0 ^ (x0 << 11) ^ ((x0 ^ unsigned(x0 << 11)) >> 8));
 }
 
-float Mth::clamp(float a, float min, float max)
+float Mth::clamp(float x, float min, float max)
 {
-	if (a > max)
+	if (x > max)
 		return max;
-	if (a > min)
-		return a;
+	if (x > min)
+		return x;
+	else
+		return min;
+	return max;
+}
+
+int Mth::clamp(int x, int min, int max)
+{
+	if (x > max)
+		return max;
+	if (x > min)
+		return x;
+	else
+		return min;
+	return max;
+}
+
+uint8_t Mth::clamp(uint8_t x, uint8_t min, uint8_t max)
+{
+	if (x > max)
+		return max;
+	if (x > min)
+		return x;
 	else
 		return min;
 	return max;
@@ -103,6 +132,11 @@ int Mth::floor(float f)
 		result--;
 
 	return result;
+}
+
+int Mth::round(float f)
+{
+	return floor(f + 0.5f);
 }
 
 float Mth::atan(float f)

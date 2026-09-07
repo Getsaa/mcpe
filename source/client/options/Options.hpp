@@ -12,146 +12,630 @@
 
 #include <string>
 #include <vector>
+#include <map>
 
-enum eKeyMappingIndex
+#include "common/Util.hpp"
+#include "common/utility/HashMap.hpp"
+#include "common/threading/AsyncTask.hpp"
+#include "client/player/input/GameController.hpp"
+#include "client/resources/ResourcePackManager.hpp"
+
+// Named "UserActionID" instead of "PlayerActionID" since
+// these are not directly associated with a Player object.
+enum UserActionID
 {
-	KM_FORWARD,
-	KM_LEFT,
-	KM_BACKWARD,
-	KM_RIGHT,
-	KM_JUMP,
-	KM_INVENTORY,
-	KM_DROP,
-	KM_CHAT,
-	KM_FOG,
-	KM_SNEAK,
-	KM_DESTROY,
-	KM_PLACE,
-	KM_MENU_NEXT,
-	KM_MENU_PREVIOUS,
-	KM_MENU_OK,
-	KM_MENU_CANCEL, KM_BACK = KM_MENU_CANCEL,
-	KM_SLOT_1,
-	KM_SLOT_2,
-	KM_SLOT_3,
-	KM_SLOT_4,
-	KM_SLOT_5,
-	KM_SLOT_6,
-	KM_SLOT_7,
-	KM_SLOT_8,
-	KM_SLOT_9,
-	KM_SLOT_L,
-	KM_SLOT_R,
-	KM_TOGGLEGUI,
-	KM_SCREENSHOT,
-	KM_TOGGLEDEBUG,
-	KM_TOGGLEAO,
-	KM_TOGGLE3RD,
-	KM_FLY_UP,
-	KM_FLY_DOWN,
-	KM_CHAT_CMD, // called "Open Chat" in Release 1.8
-	KM_COUNT,
+	AID_FORWARD,
+	AID_LEFT,
+	AID_BACKWARD,
+	AID_RIGHT,
+	AID_JUMP,
+	AID_CRAFTING,
+	AID_INVENTORY,
+	AID_DROP,
+	AID_CHAT,
+	AID_FOG,
+	AID_SNEAK,
+	AID_DESTROY,
+	AID_PLACE,
+	AID_MENU_UP,
+	AID_MENU_DOWN,
+	AID_MENU_LEFT,
+	AID_MENU_RIGHT,
+	AID_MENU_TAB_LEFT,
+	AID_MENU_TAB_RIGHT,
+	AID_MENU_OK,
+	AID_MENU_CANCEL, AID_BACK = AID_MENU_CANCEL,
+	AID_MENU_PAUSE,
+	AID_SLOT_1,
+	AID_SLOT_2,
+	AID_SLOT_3,
+	AID_SLOT_4,
+	AID_SLOT_5,
+	AID_SLOT_6,
+	AID_SLOT_7,
+	AID_SLOT_8,
+	AID_SLOT_9,
+	AID_SLOT_L,
+	AID_SLOT_R,
+	AID_CONTAINER_QUICKMOVE,
+	AID_CONTAINER_SPLIT,
+	AID_TOGGLEGUI,
+	AID_SCREENSHOT,
+	AID_TOGGLEDEBUG,
+	AID_TOGGLEAO,
+	AID_TOGGLE3RD,
+	AID_FLY_UP,
+	AID_FLY_DOWN,
+	AID_CHAT_CMD, // called "Open Chat" in Release 1.8
+	AID_COUNT
 };
 
-struct KeyMapping
+enum OptionsCategory
+{
+	OC_GAMEPLAY,
+	OC_CONTROLS,
+	OC_VIDEO,
+
+	OC_MIN = OC_GAMEPLAY,
+	OC_MAX = OC_VIDEO,
+	OC_COUNT
+};
+
+enum ThirdPersonMode
+{
+	TPM_FIRST = 0,
+	TPM_BEHIND = 1,
+	TPM_FRONT = 2,
+
+	TPM_COUNT
+};
+
+template<>
+struct HashFunction<OptionsCategory>
+{
+	size_t operator()(const OptionsCategory& key) const { return size_t(key); }
+};
+
+struct ActionInfo
+{
+	//@TODO: Replace this with a universal key
+	int keyId;
+	GameController::EngineButtonID controllerButtonId;
+
+	ActionInfo() : keyId(-1), controllerButtonId(GameController::BUTTON_NONE) {}
+	ActionInfo(int key, GameController::EngineButtonID button) : keyId(key), controllerButtonId(button) {}
+
+	bool isKey(int key) const { return keyId >= 0 && key == keyId; }
+	bool isControllerButton(GameController::EngineButtonID button) const { return controllerButtonId > GameController::BUTTON_NONE && button == controllerButtonId; }
+	bool operator==(const ActionInfo& other) const
+	{
+		return isKey(other.keyId) || isControllerButton(other.controllerButtonId);
+	}
+};
+
+struct InputMapping
 {
 	std::string key;
-	int value;
+	ActionInfo info;
+	int timesPressed;
 
-	KeyMapping() : value(-1) {} // key is automatically clear when constructed
-	KeyMapping(const char* keyName, int keyCode) : key(keyName), value(keyCode) {}
+	InputMapping() : timesPressed(0) {} // key is automatically clear when constructed
+	InputMapping(const char* keyName, int keyCode) : key(keyName), timesPressed(0)
+	{
+		info.keyId = keyCode;
+	}
+
+	void pressed() { ++timesPressed; }
+	void reset() { timesPressed = 0; }
+	bool consume()
+	{
+		if (timesPressed == 0) return false;
+		
+		--timesPressed;
+		return true;
+	}
+};
+
+enum UITheme
+{
+	UI_POCKET,
+	UI_JAVA,
+	UI_CONSOLE
+};
+
+enum LogoType
+{
+	LOGO_AUTO,
+	LOGO_POCKET,
+	LOGO_JAVA,
+	LOGO_CONSOLE,
+	LOGO_XBOX360,
+	LOGO_3D
+};
+
+//@NOTE: Used only for the UI_CONSOLE UITheme for now
+enum HUDSize
+{
+	HUD_SIZE_1 = 2,
+	HUD_SIZE_2 = 3,
+	HUD_SIZE_3 = 4
+};
+
+class Minecraft;
+class GuiElement;
+class Minecraft;
+class GameRenderer;
+
+class OptionEntry
+{
+public:
+	OptionEntry(const std::string& key, const std::string& name) : m_key(key), m_name(name), m_pMinecraft(nullptr) {}
+
+	virtual const std::string& getKey() const { return m_key; }
+	virtual const std::string& getName() const { return m_name; }
+	virtual const std::string& getDisplayName() const;
+	virtual std::string getDisplayValue() const;
+	virtual void save(std::string&) const = 0;
+	virtual std::string getMessage() const;
+	virtual void load(const std::string& value) = 0;
+	virtual void toggle() {}
+	virtual void addUnit(int mul) {}
+	virtual void fromFloat(float) {}
+	virtual float toFloat() const { return 0.0f; }
+	virtual void reset() {};
+
+	virtual void addGuiElement(std::vector<GuiElement*>&, UITheme uiTheme);
+
+private:
+	std::string m_key;
+	std::string m_name;
+
+public:
+	Minecraft* m_pMinecraft;
+};
+
+template <typename V>
+class OptionInstance : public OptionEntry
+{
+private:
+	V m_value;
+	V m_defaultValue;
+
+public:
+	OptionInstance(const std::string& key, const std::string& name, V initial) : OptionEntry(key, name), m_value(initial), m_defaultValue(initial) {}
+
+	virtual void apply() {}
+
+	void set(const V& v)
+	{
+		V oldValue = m_value;
+		m_value = v;
+		if (oldValue != v)
+			apply();
+	}
+
+	void setDefault(const V& v) { m_defaultValue = v; }
+	void reset() override { set(m_defaultValue); }
+	const V& get() const { return m_value; }
+	const V& getDefault() const { return m_defaultValue; }
+};
+
+class BoolOption : public OptionInstance<bool>
+{
+public:
+	BoolOption(const std::string& key, const std::string& name, bool initial = true) : OptionInstance<bool>(key, name, initial) {}
+
+	void load(const std::string& value) override;
+	void save(std::string& str) const override;
+	void toggle() override { set(get() ^ 1); }
+	std::string getDisplayValue() const override;
+	void addGuiElement(std::vector<GuiElement*>&, UITheme uiTheme) override;
+};
+
+class FloatOption : public OptionInstance<float>
+{
+public:
+	FloatOption(const std::string& key, const std::string& name, float initial = 0.0f, float unit = 0.01f) :
+		OptionInstance<float>(key, name, initial),
+		m_unit(unit)
+	{
+	}
+
+	void load(const std::string& value) override;
+	void save(std::string& str) const override { str = Util::toString(get()); }
+	void addUnit(int mul) override { set(Mth::clamp(get() + mul * m_unit, 0.0f, 1.0f)); }
+	void fromFloat(float v) override { set(v); }
+	float toFloat() const override { return get(); }
+	std::string getDisplayValue() const override;
+	void addGuiElement(std::vector<GuiElement*>&, UITheme uiTheme) override;
+
+public:
+	float m_unit;
+};
+
+class IntOption : public OptionInstance<int>
+{
+public:
+	IntOption(const std::string& key, const std::string& name, int initial = 0) : OptionInstance<int>(key, name, initial) {}
+
+	void load(const std::string& value) override;
+	void save(std::string& str) const override { str = Util::toString(get()); }
+};
+
+class ThirdPersonOption : public IntOption
+{
+public:
+	ThirdPersonOption(const std::string& key, const std::string& name, int initial = 0) : IntOption(key, name, initial) {}
+
+	void toggle() override { set((get() + 1) % TPM_COUNT); }
+	void addUnit(int mul) override { set(Mth::clamp(get() + mul, 0, TPM_COUNT - 1)); }
+	void fromFloat(float v) override { set(Mth::round(v * 2.0f)); }
+	float toFloat() const override { return get() / 2.0f; }
+	std::string getDisplayValue() const override;
+	void addGuiElement(std::vector<GuiElement*>&, UITheme uiTheme) override;
+};
+
+class StringOption : public OptionInstance<std::string>
+{
+public:
+	StringOption(const std::string& key, const std::string& name, std::string initial = "") : OptionInstance<std::string>(key, name, initial) {}
+
+	void load(const std::string& value) override { set(value); }
+	void save(std::string& str) const override { str = get(); }
+};
+
+class ValuesBuilder
+{
+public:
+	ValuesBuilder& add(const std::string& value)
+	{
+		m_values.push_back(value);
+		return *this;
+	}
+
+public:
+	std::vector<std::string> m_values;
+};
+
+class MinMaxOption : public IntOption
+{
+public:
+	MinMaxOption(const std::string& key, const std::string& name, int initial, int min, int max) : IntOption(key, name, initial)
+		, m_min(min)
+		, m_max(max)
+		, m_bIsSlider(false)
+	{
+	}
+
+	void toggle() override { set(Mth::Max(m_min, (get() + 1) % m_max)); }
+	void addUnit(int mul) override { set(Mth::clamp(get() + mul, m_min, m_max - 1)); }
+	void fromFloat(float v) override { set(Mth::round(m_min + (m_max - 1 - m_min) * v)); }
+	float toFloat() const override { return (get() - m_min) / float(m_max - 1 - m_min); }
+	void addGuiElement(std::vector<GuiElement*>&, UITheme uiTheme) override;
+
+public:
+	int m_min, m_max;
+	bool m_bIsSlider;
+};
+
+class ValuesOption : public MinMaxOption
+{
+public:
+	ValuesOption(const std::string& key, const std::string& name, int initial, const ValuesBuilder& values, bool isSlider = false) : MinMaxOption(key, name, initial, 0, values.m_values.size())
+		, m_values(values.m_values)
+	{
+		m_bIsSlider = isSlider;
+	}
+
+	const std::string& getValue() const { return m_values[Mth::clamp(get(), m_min, m_max - 1)]; }
+	std::string getDisplayValue() const override;
+
+public:
+	std::vector<std::string> m_values;
+};
+
+class SensitivityOption : public FloatOption
+{
+public:
+	SensitivityOption(const std::string& key, const std::string& name, float initial = 0.0f) : FloatOption(key, name, initial, 0.005f) {}
+
+	std::string getDisplayValue() const override;
+};
+
+class AOOption : public BoolOption
+{
+public:
+	AOOption(const std::string& key, const std::string& name, bool initial = true) : BoolOption(key, name, initial) {}
+
+	void apply() override;
+};
+
+class GraphicsOption : public BoolOption
+{
+public:
+	GraphicsOption(const std::string& key, const std::string& name, bool initial = true) : BoolOption(key, name, initial) {}
+
+	void apply() override;
+};
+
+class FancyGraphicsOption : public GraphicsOption
+{
+public:
+	FancyGraphicsOption(const std::string& key, const std::string& name, bool initial = true) : GraphicsOption(key, name, initial) {}
+
+	void apply() override;
+	std::string getMessage() const override;
+};
+
+class VsyncOption : public BoolOption
+{
+public:
+	VsyncOption(const std::string& key, const std::string& name, bool initial = true) : BoolOption(key, name, initial) {}
+
+	void apply() override;
+};
+
+class GuiScaleOption : public ValuesOption
+{
+public:
+	GuiScaleOption(const std::string& key, const std::string& name, int initial, const ValuesBuilder& values) : ValuesOption(key, name, initial, values) {}
+
+	void apply() override;
+};
+
+class GammaOption : public FloatOption
+{
+public:
+	GammaOption(const std::string& key, const std::string& name, float initial) : FloatOption(key, name, initial, 0.01f) {}
+
+	void apply() override;
+	void apply(GameRenderer& gameRenderer);
+	std::string getDisplayValue() const override;
+};
+
+class LogoTypeOption : public ValuesOption
+{
+public:
+	LogoTypeOption(const std::string& key, const std::string& name, int initial, const ValuesBuilder& values) : ValuesOption(key, name, initial, values) {}
+
+	void apply() override;
+};
+
+class UIThemeOption : public ValuesOption
+{
+public:
+	UIThemeOption(const std::string& key, const std::string& name, int initial, const ValuesBuilder& values) : ValuesOption(key, name, initial, values) {}
+
+	void apply() override;
+};
+
+class HUDSizeOption : public MinMaxOption
+{
+public:
+	HUDSizeOption(const std::string& key, const std::string& name, int initial) : MinMaxOption(key, name, initial, HUD_SIZE_1, HUD_SIZE_3 + 1)
+	{
+		m_bIsSlider = true;
+	}
+
+	std::string getDisplayValue() const override;
+};
+
+class SwapJumpSneakOption : public BoolOption
+{
+public:
+	SwapJumpSneakOption(const std::string& key, const std::string& name, bool initial = false) : BoolOption(key, name, initial) {}
+
+	void apply() override;
+};
+
+class DpadSizeOption : public FloatOption
+{
+public:
+	DpadSizeOption(const std::string& key, const std::string& name, float initial = 1.0f) : FloatOption(key, name, initial, 0.05f) {}
+
+	void apply() override;
+	void addUnit(int mul) override { set(Mth::clamp(get() + mul * m_unit, 0.5f, 1.5f)); }
+	void fromFloat(float v) override { set(0.5f + v); }
+	float toFloat() const override { return get() - 0.5f; }
+};
+
+class FovOption : public FloatOption
+{
+public:
+	FovOption(const std::string& key, const std::string& name, float initial = 70.0f) : FloatOption(key, name, initial, 1.0f) {}
+
+	void apply() override;
+	void addUnit(int mul) override { set(Mth::clamp(get() + mul * m_unit, 30.0f, 110.0f)); }
+	void fromFloat(float v) override { set(30.0f + v * 80.0f); }
+	float toFloat() const override { return (get() - 30.0f) / 80.0f; }
+	std::string getDisplayValue() const override;
 };
 
 class Options
 {
-public:
-	struct Option;
-	struct KeyBind;
 private:
+	typedef HashMap<OptionsCategory, std::vector<OptionEntry*> > CategoryMap;
+
+private:
+	static bool _hasResourcePack(const ResourcePack& pack, ResourcePackStack& packs);
+	static void _tryAddResourcePack(const std::string& name, ResourcePackStack& packs);
+
+    // @TODO: Move these to a "PlainTextSerializer" class, since we probably want to use these
+    // in PatchManager as well.
 	static bool readBool(const std::string& str);
 	static int readInt(const std::string& str);
+	static float readFloat(const std::string& str);
+	static void readArray(const std::string& str, std::vector<std::string>& array);
+	static void readPackArray(const std::string& str, ResourcePackStack& array);
 	static std::string saveBool(bool b);
 	static std::string saveInt(int i);
+	static std::string saveFloat(float f);
+	static std::string saveArray(const std::vector<std::string>& arr);
+	static std::string savePackArray(const ResourcePackStack& arr);
 	static std::vector<std::string> readPropertiesFromFile(const std::string& filePath);
-	static void savePropertiesToFile(const std::string& filePath, std::vector<std::string> properties);
+	static void savePropertiesToFile(const std::string& filePath, const std::vector<std::string>& properties);
+
+private: // async
+	MC_ASYNC_FUNC_VOID_2(savePropertiesToFile,
+		const std::string, filePath,
+		const std::vector<std::string>, properties
+	);
 
 private:
 	void _initDefaultValues();
 	void _load();
+	AsyncTask _saveAsync();
+
 public:
-	Options();
-	Options(const std::string& folderPath);
-	void save();
-	std::string getMessage(const Options::Option&);
+	Options(Minecraft*, const std::string& folderPath = "");
+
+	void add(OptionEntry&);
+	void add(OptionsCategory cat, OptionEntry&);
+	const AsyncTask& save();
 	std::vector<std::string> getOptionStrings();
 	
-	int getKey(eKeyMappingIndex idx) const { return m_keyMappings[idx].value; }
-	bool isKey(eKeyMappingIndex idx, int keyCode) const { return getKey(idx) == keyCode; }
+	int getKey(UserActionID idx) const { return m_inputMappings[idx].info.keyId; }
+	bool isKey(UserActionID idx, int keyCode) const { return getKey(idx) == keyCode; }
+
+	InputMapping& getInputMapping(UserActionID idx) { return m_inputMappings[idx]; }
+	const ActionInfo& getAction(UserActionID idx) const { return m_inputMappings[idx].info; }
+	bool isAction(UserActionID idx, const ActionInfo& info) const { return m_inputMappings[idx].info == info; }
 
 	void loadControls();
+	void reset();
+	void resetCategory(OptionsCategory cat);
+	void initResourceDependentOptions();
+
+	UITheme getUiTheme() const;
+	LogoType getLogoType() const;
 
 private:
+	Minecraft* m_pMinecraft;
+	HashMap<std::string, OptionEntry*> m_options;
+	CategoryMap m_categoryOptions;
+	AsyncTask m_saveTask;
 	std::string m_filePath;
-	KeyMapping m_keyMappings[KM_COUNT];
+	InputMapping m_inputMappings[AID_COUNT];
 
 public:
-	float field_0;
-	float m_fMasterVolume;
-	float m_fSensitivity;
-	bool m_bInvertMouse;
-	int m_iViewDistance;
-	bool m_bViewBobbing;
-	bool m_bAnaglyphs;
-	uint8_t field_16;
-	bool m_bFancyGraphics;
-	bool m_bAmbientOcclusion;
-	uint8_t field_19; // use Mouse as input for breaking
-	std::string field_1C;
-	int m_difficulty;
-	bool m_bDontRenderGui;
-	bool m_bThirdPerson;
-	uint8_t field_23E;
-	bool m_bFlyCheat;
-	uint8_t field_240;
-	bool field_241;
-	float field_244;
+	friend class BoolOption;
+	friend class FloatOption;
+	friend class SensitivityOption;
+	friend class IntOption;
+	friend class HUDSizeOption;
+	friend class DpadSizeOption;
+	friend class FovOption;
+
+	FloatOption m_musicVolume;
+	FloatOption m_masterVolume;
+	SensitivityOption m_sensitivity;
+	BoolOption m_invertMouse;
+	ValuesOption m_viewDistance;
+	BoolOption m_viewBobbing;
+	BoolOption m_anaglyphs;
+	bool m_bLimitFramerate;
+	FancyGraphicsOption m_fancyGraphics;
+	AOOption m_ambientOcclusion;
+	BoolOption m_fancySky;
+	bool m_bUseMouseForDigging;
+	std::string m_skin;
+	ValuesOption m_difficulty;
+	BoolOption m_hideGui;
+	ThirdPersonOption m_thirdPerson;
+	BoolOption m_flightHax;
+	SwapJumpSneakOption m_swapJumpSneak;
+	DpadSizeOption m_dpadSize;
+	bool field_240; // seems like it's doing some sort of mouse smoothing
+	bool m_bFixedCamera;
+	float m_flySpeed;
 	float field_248;
-	int field_24C;
-	std::string m_playerName;
-	bool m_bServerVisibleDefault;
-	bool m_bAutoJump;
-	bool m_bDebugText;
-	bool m_bBlockOutlines;
-	bool m_bFancyGrass;
-	bool m_bBiomeColors;
-	bool m_bSplitControls;
-	bool m_bUseController;
-	bool m_bDynamicHand;
-	bool m_bOldTitleLogo;
-	bool m_bMenuPanorama;
-
-public:
-	struct Option
-	{
-		bool field_0;
-		bool field_1;
-		std::string str;
-		int field_1C;
-		
-		Option(int i, const std::string& str, bool b1, bool b2) : field_0(b1), field_1(b2), str(str), field_1C(i) {}
-
-		static Option MUSIC;
-		static Option SOUND;
-		static Option INVERT_MOUSE;
-		static Option SENSITIVITY;
-		static Option RENDER_DISTANCE;
-		static Option VIEW_BOBBING;
-		static Option ANAGLYPH;
-		static Option LIMIT_FRAMERATE;
-		static Option DIFFICULTY;
-		static Option GRAPHICS;
-		static Option AMBIENT_OCCLUSION;
-		static Option GUI_SCALE;
-	};
+	GuiScaleOption m_guiScale;
+	GammaOption m_gamma;
+	FovOption m_fov;
+	StringOption m_playerName;
+	BoolOption m_serverVisibleDefault;
+	BoolOption m_autoJump;
+	BoolOption m_debugText;
+	BoolOption m_blockOutlines;
+	GraphicsOption m_fancyGrass;
+	GraphicsOption m_biomeColors;
+	BoolOption m_splitControls;
+	BoolOption m_dynamicHand;
+	BoolOption m_menuPanorama;
+	StringOption m_lang;
+	UIThemeOption m_uiTheme;
+	LogoTypeOption m_logoType;
+	HUDSizeOption m_hudSize;
+	BoolOption m_classicCrafting;
+	BoolOption m_animatedCharacter;
+	VsyncOption m_vSync;
+	ResourcePackStack m_resourcePacks;
 };
+
+
+#define OPTIONS_LIST_GAMEPLAY_GAME         \
+	HEADER("Game");                        \
+		OPTION(m_difficulty);              \
+		OPTION(m_thirdPerson);             \
+		OPTION(m_serverVisibleDefault);    \
+	if (m_uiTheme == UI_CONSOLE)           \
+		OPTION(m_classicCrafting);         \
+
+#define OPTIONS_LIST_GAMEPLAY_AUDIO        \
+	HEADER("Audio");                       \
+		OPTION(m_musicVolume);             \
+		OPTION(m_masterVolume);            \
+
+#define OPTIONS_LIST_CONTROLS_CONTROLS     \
+	HEADER("Controls");                    \
+		OPTION(m_sensitivity);             \
+		OPTION(m_invertMouse);             \
+	if (mc.useTouchscreen()) {             \
+		OPTION(m_splitControls);           \
+		OPTION(m_swapJumpSneak);           \
+		OPTION(m_dpadSize);                \
+	}                                      \
+		OPTION(m_autoJump);                \
+
+#define OPTIONS_LIST_CONTROLS_FEEDBACK     \
+	/*HEADER("Feedback");*/                \
+		/*OPTION(m_vibrate);*/             \
+
+#define OPTIONS_LIST_CONTROLS_EXPERIMENTAL \
+	HEADER("Experimental");                \
+		OPTION(m_flightHax);               \
+
+#define OPTIONS_LIST_VIDEO_GRAPHICS        \
+	HEADER("Graphics");                    \
+		/*OPTION(m_brightness);*/          \
+		OPTION(m_viewDistance);            \
+		/*OPTION(m_antiAliasing);*/        \
+		/*OPTION(m_guiScale);*/            \
+		OPTION(m_fov);                     \
+		OPTION(m_gamma); int idxGamma = currentIndex; \
+		OPTION(m_ambientOcclusion);        \
+		OPTION(m_fancyGraphics);           \
+		OPTION(m_fancySky);                \
+		/*OPTION(m_animatedTextures);*/    \
+		OPTION(m_viewBobbing);             \
+		OPTION(m_anaglyphs);               \
+		OPTION(m_blockOutlines);           \
+		/*OPTION(m_limitFramerate);*/      \
+		OPTION(m_vSync); int idxVSync = currentIndex; \
+		OPTION(m_fancyGrass);              \
+		OPTION(m_biomeColors);             \
+		/*OPTION(m_bMipmaps);*/            \
+		OPTION(m_dynamicHand);             \
+		OPTION(m_uiTheme);                 \
+		OPTION(m_logoType);                \
+	if (m_uiTheme == UI_CONSOLE) {         \
+		OPTION(m_hudSize);                 \
+		OPTION(m_animatedCharacter);       \
+	}                                      \
+
+#define OPTIONS_LIST_VIDEO_EXPERIMENTAL    \
+	HEADER("Experimental");                \
+		OPTION(m_hideGui);                 \
+		OPTION(m_debugText);               \
+		OPTION(m_menuPanorama); int idxPano = currentIndex; \
 

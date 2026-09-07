@@ -7,10 +7,10 @@
  ********************************************************************/
 
 #include <cstdarg>
-#include <WindowsX.h>
+#include <windowsx.h>
 
-#include "thirdparty/GL/GL.hpp"
 #include "compat/KeyCodes.hpp"
+#include "GameMods.hpp"
 
 #include "client/app/App.hpp"
 #include "client/app/NinecraftApp.hpp"
@@ -19,8 +19,7 @@
 
 #include "AppPlatform_win32.hpp"
 #include "resource.h"
-
-LPCTSTR g_WindowClassName = TEXT("MCPEClass");
+#include "LoggerWin32.hpp"
 
 AppPlatform_win32 g_AppPlatform;
 NinecraftApp* g_pApp;
@@ -62,23 +61,30 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
 				posY = Mouse::getY();
 			}
 			Mouse::feed(buttonType, buttonState, posX, posY);
-			Multitouch::feed(buttonType, buttonState, posX, posY, 0);
+			if (g_AppPlatform.isTouchscreen())
+				Multitouch::feed(buttonType, buttonState, posX, posY, 0);
 			break;
 		}
 
 		case WM_SIZE:
 		{
-			UINT width = LOWORD(lParam);
-			UINT height = HIWORD(lParam);
+			// Prevent creation of a 0x0 window, can cause crashes, like in GLM on the 3D title logo
+			UINT width = Mth::Max(LOWORD(lParam), 1);
+			UINT height = Mth::Max(HIWORD(lParam), 1);
 
 			Minecraft::width  = width;
 			Minecraft::height = height;
-			Minecraft::setRenderScaleMultiplier(1.0f); // assume no meddling with the DPI stuff
+			Minecraft::SetRenderScaleMultiplier(1.0f); // assume no meddling with the DPI stuff
 
 			g_AppPlatform.setScreenSize(width, height);
 
 			if (g_pApp)
+			{
 				g_pApp->sizeUpdate(width, height);
+#if MCE_GFX_API_D3D9
+				g_pApp->onGraphicsReset();
+#endif
+			}
 
 			break;
 		}
@@ -92,6 +98,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
 
 			if (wParam == VK_SHIFT)
 				g_AppPlatform.setShiftPressed(state == Keyboard::KeyState::DOWN);
+			else if (wParam == VK_CONTROL)
+				g_AppPlatform.setControlPressed(state == Keyboard::KeyState::DOWN);
 
 			break;
 		}
@@ -101,10 +109,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
 			if (lParam & (1 << 31))
 				break;
 
-			if (wParam >= '~' && wParam < ' ')
-				break;
+			// CTRL+V corresponds to character 0x16
+			if (wParam == '\x16')
+			{
+				// we are pasting text
+				g_pApp->handleTextPaste();
+			}
+			else
+			{
+				g_pApp->handleCharInput(char(wParam));
+			}
 
-			g_pApp->handleCharInput(char(wParam));
 			break;
 		}
 
@@ -119,70 +134,49 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 {
 #if defined(_DEBUG) && defined(MOD_POPOUT_CONSOLE)
 	AllocConsole();
-	FILE* ostream;
-	FILE* istream;
-	freopen_s(&ostream, "CONOUT$", "w", stdout);
-	freopen_s(&istream, "CONIN$", "r", stdin);
-	SetConsoleTitle("ReMinecraftPE Debug Console");
+	freopen("CONOUT$", "w", stdout);
+	freopen("CONIN$", "r", stdin);
+	SetConsoleTitle(C_GAME_NAME " Debug Console");
 #endif
 
-	SetInstance(hInstance);
+	// This initializes the Logger singleton to use the Windows-specific variant
+	// If we didn't initialize it here, the Minecraft class would have our back
+	Logger::setSingleton(new LoggerWin32);
 
-	// register the window class:
-	WNDCLASS wc;
-	wc.style = CS_OWNDC;
-	wc.lpfnWndProc = WndProc;
-	wc.cbClsExtra = 0;
-	wc.cbWndExtra = 0;
-	wc.hInstance = hInstance;
-	wc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON));
-	wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-	wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-	wc.lpszMenuName = NULL;
-	wc.lpszClassName = g_WindowClassName;
-
-	RECT wr = { 0,0, g_AppPlatform.getScreenWidth(), g_AppPlatform.getScreenHeight() };
-	AdjustWindowRect(&wr, WS_OVERLAPPEDWINDOW, false);
-	int w = wr.right - wr.left;
-	int h = wr.bottom - wr.top;
-
-	const char* windowTitle = g_AppPlatform.getWindowTitle();
-	// Dumb Unicode bullshit
-	//LPTSTR windowTitle;
-	//mbstowcs(&windowTitle, windowTitleStr, 255);
-
-	if (!RegisterClass(&wc))
-	{
-		MessageBox(NULL, TEXT("Could not register Minecraft class"), windowTitle, MB_ICONERROR | MB_OK);
+	HWND hWnd = g_AppPlatform.createWindow(hInstance, WndProc, g_pApp, IDI_ICON);
+	if (!hWnd)
 		return 1;
-	}
+	g_AppPlatform.initializeWindow(hWnd, nCmdShow);
 
-	HWND hWnd = CreateWindowEx(0, g_WindowClassName, windowTitle, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, w, h, NULL, NULL, hInstance, g_pApp);
-
-	CenterWindow(hWnd);
-	ShowWindow(hWnd, nCmdShow);
-	SetHWND(hWnd);
-
-	HDC hDC; HGLRC hRC;
-	// enable OpenGL for the window
-	EnableOpenGL(hWnd, &hDC, &hRC);
-
-	xglInit();
-
-	if (!xglInitted())
-	{
-		const char* const GL_ERROR_MSG = "Error initializing GL extensions. OpenGL 2.0 or later is required. Update your graphics drivers!";
-		LOG_E(GL_ERROR_MSG);
-		MessageBoxA(GetHWND(), GL_ERROR_MSG, "OpenGL Error", MB_OK);
-
+	if (!g_AppPlatform.initGraphics(Minecraft::width, Minecraft::height))
 		goto _cleanup;
-	}
 
-	xglSwapIntervalEXT(1);
+	g_AppPlatform.setVSyncEnabled(true);
 
 	g_pApp = new NinecraftApp;
-	g_pApp->m_pPlatform = &g_AppPlatform;
-	g_pApp->m_externalStorageDir = ".";
+
+	// Storage Directory
+	{
+		std::string storagePath;
+		const char *appdata = getenv("APPDATA");
+		if (!appdata)
+		{
+			const char *windir = getenv("WINDIR");
+			if (windir)
+				storagePath = (std::string)windir + "\\Application Data";
+			else
+				storagePath = ".";
+		}
+		else
+		{
+			storagePath = appdata;
+		}
+		storagePath += "/" C_STORAGE_DIR;
+
+		if (!storagePath.empty())
+			createFolderIfNotExists(storagePath.c_str());
+		g_AppPlatform.m_externalStorageDir = storagePath;
+	}
 
 	// initialize the app
 	g_pApp->init();
@@ -209,23 +203,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 			g_pApp->update();
 
 			// note: NinecraftApp would have done this with eglSwapBuffers, but I'd rather do it here:
-			SwapBuffers(hDC);
+			g_AppPlatform.swapBuffers();
 		}
 	}
 
 _cleanup:
 	g_pApp->saveOptions();
 
-	// disable OpenGL for the window
-	DisableOpenGL(hWnd, hDC, hRC);
+	// Cleanup networking, renderer, sounds, textures, etc.
+	delete g_pApp;
+
+	g_AppPlatform.disableGraphics();
 
 	// destroy the window explicitly, since we ignored the WM_QUIT message
-	DestroyWindow(hWnd);
-
-	hWnd = NULL;
-	SetHWND(NULL);
-
-	delete g_pApp;
+	g_AppPlatform.destroyWindow();
 
 	return 0;
 }

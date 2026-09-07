@@ -1,21 +1,37 @@
 cmake_minimum_required(VERSION 3.16.0)
-project(reminecraftpe-core)
+project(nbcraft-core)
 
 # Build
-add_library(reminecraftpe-core STATIC
-    common/Random.cpp
-    common/Utils.cpp
-    common/Matrix.cpp
-    common/Mth.cpp
-    common/Timer.cpp
-    common/CThread.cpp
-    common/Util.cpp
+add_library(nbcraft-core STATIC
+    common/threading/AsyncTask.cpp
+    common/DataIO.cpp
     common/Logger.cpp
+    common/math/Color.cpp
+    common/Mth.cpp
+    common/Random.cpp
     common/SmoothFloat.cpp
+    common/Timer.cpp
+    common/Util.cpp
+    common/utility/AlignmentHelper.cpp
+    common/utility/JsonParser.cpp
+    common/utility/Singleton.cpp
+    common/utility/ByteBuffer.cpp
+    common/Utils.cpp
     client/app/App.cpp
     client/app/AppPlatform.cpp
+    client/app/AppPlatformListener.cpp
     client/app/Minecraft.cpp
     client/app/NinecraftApp.cpp
+    client/resources/AppResourceLoader.cpp
+    client/resources/Resource.cpp
+    client/resources/ResourceLoader.cpp
+    client/resources/ResourceLocation.cpp
+    client/resources/ResourcePack.cpp
+    client/resources/ResourcePackManager.cpp
+    client/resources/ResourcePackManifest.cpp
+    client/resources/ResourcePackRepository.cpp
+    client/resources/SplashManager.cpp
+    client/resources/LoadingTipManager.cpp
     client/options/Options.cpp
     client/renderer/LevelRenderer.cpp
     client/renderer/Culler.cpp
@@ -29,17 +45,29 @@ add_library(reminecraftpe-core STATIC
     client/renderer/entity/EntityRenderDispatcher.cpp
     client/renderer/entity/HumanoidMobRenderer.cpp
     client/renderer/entity/SpiderRenderer.cpp
-    client/renderer/entity/ZombieRenderer.cpp
-    client/renderer/entity/SkeletonRenderer.cpp
+    client/renderer/entity/ArrowRenderer.cpp
     client/renderer/entity/SheepRenderer.cpp
     client/renderer/entity/SheepFurRenderer.cpp
     client/renderer/entity/CreeperRenderer.cpp
     client/renderer/entity/CowRenderer.cpp
     client/renderer/entity/PigRenderer.cpp
-    client/renderer/entity/SheepRenderer.cpp
     client/renderer/entity/ChickenRenderer.cpp
     client/renderer/entity/RocketRenderer.cpp
+    client/renderer/entity/SquidRenderer.cpp
+    client/renderer/entity/GiantMobRenderer.cpp
+    client/renderer/entity/SlimeRenderer.cpp
+    client/renderer/entity/FireballRenderer.cpp
+    client/renderer/entity/GhastRenderer.cpp
+    client/renderer/entity/FishingHookRenderer.cpp
+    client/renderer/renderer/EntityShaderManager.cpp
+    client/renderer/renderer/RenderMaterialGroup.cpp
+    client/renderer/renderer/ShaderGroup.cpp
+    client/renderer/renderer/Tesselator.cpp
+    client/renderer/texture/ImageData.cpp
+    client/renderer/texture/TextureData.cpp
+    client/renderer/texture/TextureAtlas.cpp
     client/renderer/RenderList.cpp
+    client/renderer/ScreenRenderer.cpp
     client/renderer/Chunk.cpp
     client/renderer/RenderChunk.cpp
     client/renderer/Frustum.cpp
@@ -49,9 +77,9 @@ add_library(reminecraftpe-core STATIC
     client/renderer/Textures.cpp
     client/renderer/FrustumCuller.cpp
     client/renderer/LightUpdate.cpp
+    client/renderer/Fog.cpp
     client/renderer/Font.cpp
     client/renderer/WaterSideTexture.cpp
-    client/renderer/Tesselator.cpp
     client/renderer/TileRenderer.cpp
     client/renderer/LightLayer.cpp
     client/renderer/Lighting.cpp
@@ -60,58 +88,113 @@ add_library(reminecraftpe-core STATIC
     client/renderer/LavaTexture.cpp
     client/renderer/LavaSideTexture.cpp
     client/renderer/FireTexture.cpp
+    client/renderer/CompassTexture.cpp
+    client/renderer/ClockTexture.cpp
+    client/renderer/PortalTexture.cpp
     client/renderer/FoliageColor.cpp
     client/renderer/GrassColor.cpp
+    client/renderer/LogoRenderer.cpp
     client/sound/SoundData.cpp
+    client/sound/SoundPathRepository.cpp
+    client/sound/SoundStream.cpp
     client/sound/SoundSystem.cpp
     client/sound/SoundRepository.cpp
     client/sound/SoundEngine.cpp
     client/gui/Screen.cpp
+    client/gui/ScreenChooser.cpp
+    client/gui/ScreenChooser_Console.cpp
+    client/gui/ScreenChooser_Pocket.cpp
+    client/gui/screens/CreditsScreen.cpp
     client/gui/screens/OptionsScreen.cpp
+    client/gui/screens/OptionsScreen_Console.cpp
     client/gui/screens/StartMenuScreen.cpp
+    client/gui/screens/StartMenuScreen_Console.cpp
+    client/gui/screens/StartMenuScreen_Pocket.cpp
+    client/gui/screens/ConvertWorldScreen.cpp
     client/gui/screens/CreateWorldScreen.cpp
+    client/gui/screens/CreateWorldScreen_Console.cpp
     client/gui/screens/DirectConnectScreen.cpp
     client/gui/screens/DisconnectionScreen.cpp
     client/gui/screens/SelectWorldScreen.cpp
+    client/gui/screens/SelectWorldScreen_Console.cpp
     client/gui/screens/SavingWorldScreen.cpp
     client/gui/screens/InvalidLicenseScreen.cpp
     client/gui/screens/ConfirmScreen.cpp
     client/gui/screens/DeleteWorldScreen.cpp
     client/gui/screens/DeathScreen.cpp
+    client/gui/screens/DeathScreen_Console.cpp
     client/gui/screens/ChatScreen.cpp
     client/gui/screens/RenameMPLevelScreen.cpp
     client/gui/screens/ProgressScreen.cpp
+    client/gui/screens/ProgressScreen_Console.cpp
     client/gui/screens/JoinGameScreen.cpp
     client/gui/screens/IngameBlockSelectionScreen.cpp
     client/gui/screens/PauseScreen.cpp
+    client/gui/screens/PauseScreen_Console.cpp
     client/gui/screens/DeathScreen.cpp
+    client/gui/screens/PanelScreen_Console.cpp
+    client/gui/screens/AutosaveWarningScreen_Console.cpp
+    client/gui/screens/JoinGameScreen_Console.cpp
+    client/gui/screens/LoadWorldScreen_Console.cpp
+    client/gui/screens/SavingWorldScreen_Console.cpp
+    client/gui/screens/inventory/ContainerScreen.cpp
+    client/gui/screens/inventory/CreativeScreen.cpp
+    client/gui/screens/inventory/CreativeScreen_Console.cpp
+    client/gui/screens/inventory/InventoryScreen.cpp
+    client/gui/screens/inventory/CraftingScreen.cpp
+    client/gui/screens/inventory/CraftingScreen_Console.cpp
+    client/gui/screens/inventory/ClassicCraftingScreen_Console.cpp
+    client/gui/screens/inventory/FurnaceScreen.cpp
+    client/gui/screens/inventory/ChestScreen.cpp
+	client/gui/screens/inventory/TrapScreen.cpp
+    client/gui/screens/inventory/TrapScreen_Console.cpp
+    client/gui/screens/inventory/ClientCraftContext.cpp
     client/gui/components/ScrolledSelectionList.cpp
     client/gui/components/AvailableGamesList.cpp
     client/gui/components/RolledSelectionList.cpp
     client/gui/components/Button.cpp
-    client/gui/components/TextInputBox.cpp
+    client/gui/components/TextBox.cpp
     client/gui/components/SmallButton.cpp
+    client/gui/components/SliderButton.cpp
+    client/gui/components/SwitchButton.cpp
+    client/gui/components/SwitchValuesButton.cpp
+    client/gui/components/TickBox.cpp
     client/gui/components/WorldSelectionList.cpp
     client/gui/components/OptionList.cpp
+    client/gui/components/ScrollRenderer_Console.cpp
+	client/gui/components/ImageButton.cpp
+	client/gui/components/LargeImageButton.cpp
+    client/gui/components/TabButton.cpp
+    client/gui/components/CraftButton_Console.cpp
+    client/locale/Language.cpp
     client/gui/Gui.cpp
     client/gui/GuiComponent.cpp
-    client/model/PolygonQuad.cpp
-    client/model/Model.cpp
-    client/model/Cube.cpp
-    client/model/ModelPart.cpp
-    client/model/QuadrupedModel.cpp
-    client/model/PigModel.cpp
-    client/model/SheepModel.cpp
-    client/model/HumanoidModel.cpp
-    client/model/SpiderModel.cpp
-    client/model/ZombieModel.cpp
-    client/model/SkeletonModel.cpp
-    client/model/SheepModel.cpp
-    client/model/SheepFurModel.cpp
-    client/model/CreeperModel.cpp
-    client/model/CowModel.cpp
-    client/model/ChickenModel.cpp
-    client/player/input/Controller.cpp
+    client/gui/GuiElement.cpp
+    client/gui/MenuPointer.cpp
+    client/gui/VerticalLayout.cpp
+    client/gui/TabLayout.cpp
+    client/gui/AreaNavigation.cpp
+    client/model/geom/PolygonQuad.cpp
+    client/model/geom/Cube.cpp
+    client/model/geom/ModelPart.cpp
+    client/model/models/QuadrupedModel.cpp
+    client/model/models/PigModel.cpp
+    client/model/models/SheepModel.cpp
+    client/model/models/HumanoidModel.cpp
+    client/model/models/Model.cpp
+    client/model/models/SpiderModel.cpp
+    client/model/models/ZombieModel.cpp
+    client/model/models/SkeletonModel.cpp
+    client/model/models/SheepModel.cpp
+    client/model/models/SheepFurModel.cpp
+    client/model/models/CreeperModel.cpp
+    client/model/models/CowModel.cpp
+    client/model/models/ChickenModel.cpp
+    client/model/models/SquidModel.cpp
+    client/model/models/SlimeModel.cpp
+    client/model/models/GhastModel.cpp
+    client/multiplayer/MultiPlayerLevel.cpp
+    client/multiplayer/MultiplayerLocalPlayer.cpp
     client/player/input/ControllerBuildInput.cpp
     client/player/input/ControllerMoveInput.cpp
     client/player/input/ControllerTurnInput.cpp
@@ -120,6 +203,9 @@ add_library(reminecraftpe-core STATIC
     client/player/input/MouseBuildInput.cpp
     client/player/input/MouseTurnInput.cpp
     client/player/input/KeyboardInput.cpp
+    client/player/input/GameController.cpp
+    client/player/input/GameControllerHandler.cpp
+    client/player/input/GameControllerManager.cpp
     client/player/input/ITurnInput.cpp
     client/player/input/IBuildInput.cpp
     client/player/input/IncludeExcludeArea.cpp
@@ -136,28 +222,72 @@ add_library(reminecraftpe-core STATIC
     client/player/input/TouchInputHolder.cpp
     client/player/input/TouchscreenInput_TestFps.cpp
     client/player/input/UnifiedTurnBuild.cpp
+    client/player/LocalPlayer.cpp
     client/network/ClientSideNetworkHandler.cpp
-    network/packets/UpdateBlockPacket.cpp
-    network/packets/RequestChunkPacket.cpp
-    network/packets/PlayerEquipmentPacket.cpp
-    network/packets/ChunkDataPacket.cpp
-    network/packets/LevelDataPacket.cpp
-    network/packets/PlaceBlockPacket.cpp
+    nbt/CompoundTag.cpp
+    nbt/DoubleTag.cpp
+    nbt/EndTag.cpp
+    nbt/FloatTag.cpp
+    nbt/Int8ArrayTag.cpp
+    nbt/Int8Tag.cpp
+    nbt/Int16Tag.cpp
+    nbt/Int32ArrayTag.cpp
+    nbt/Int32Tag.cpp
+    nbt/Int64ArrayTag.cpp
+    nbt/Int64Tag.cpp
+    nbt/ListTag.cpp
+    nbt/NbtIo.cpp
+    nbt/StringTag.cpp
+    nbt/Tag.cpp
     network/packets/LoginPacket.cpp
     network/packets/LoginStatusPacket.cpp
     network/packets/ReadyPacket.cpp
+    network/packets/MessagePacket.cpp
     network/packets/SetTimePacket.cpp
     network/packets/StartGamePacket.cpp
-    network/packets/RemoveEntityPacket.cpp
+    network/packets/AddMobPacket.cpp
     network/packets/AddPlayerPacket.cpp
-    network/packets/RemoveBlockPacket.cpp
+    network/packets/AddEntityPacket.cpp
+    network/packets/RemoveEntityPacket.cpp
+    network/packets/AddItemEntityPacket.cpp
+    network/packets/TakeItemEntityPacket.cpp
+    network/packets/MoveEntityPacket.cpp
+    network/packets/MoveEntityPacket_PosRot.cpp
     network/packets/MovePlayerPacket.cpp
-    network/packets/MessagePacket.cpp
-    network/ServerSideNetworkHandler.cpp
+    network/packets/PlaceBlockPacket.cpp
+    network/packets/RemoveBlockPacket.cpp
+    network/packets/UpdateBlockPacket.cpp
+    network/packets/ExplodePacket.cpp
+    network/packets/LevelEventPacket.cpp
+    network/packets/TileEventPacket.cpp
+    network/packets/EntityEventPacket.cpp
+    network/packets/RequestChunkPacket.cpp
+    network/packets/ChunkDataPacket.cpp
+    network/packets/PlayerEquipmentPacket.cpp
+    network/packets/InteractPacket.cpp
+    network/packets/UseItemPacket.cpp
+    network/packets/PlayerActionPacket.cpp
+    network/packets/SetEntityDataPacket.cpp
+    network/packets/SetEntityMotionPacket.cpp
+    network/packets/SetHealthPacket.cpp
+    network/packets/AnimatePacket.cpp
+    network/packets/RespawnPacket.cpp
+    network/packets/SendInventoryPacket.cpp
+    network/packets/DropItemPacket.cpp
+    network/packets/ContainerOpenPacket.cpp
+    network/packets/ContainerClosePacket.cpp
+    network/packets/ContainerSetSlotPacket.cpp
+    network/packets/ContainerSetDataPacket.cpp
+    network/packets/ContainerSetContentPacket.cpp
+    network/packets/ContainerAckPacket.cpp
+    network/packets/LevelDataPacket.cpp
+    network/RakIO.cpp
     network/RakNetInstance.cpp
     network/MinecraftPackets.cpp
     network/NetEventCallback.cpp
     network/PacketUtil.cpp
+    server/ServerPlayer.cpp
+    server/ServerSideNetworkHandler.cpp
     world/level/levelgen/synth/Synth.cpp
     world/level/levelgen/synth/ImprovedNoise.cpp
     world/level/levelgen/synth/PerlinNoise.cpp
@@ -169,11 +299,11 @@ add_library(reminecraftpe-core STATIC
     world/phys/Vec2.cpp
     world/phys/Vec3.cpp
     world/phys/AABB.cpp
+    world/phys/Rot2.cpp
     world/gamemode/SurvivalMode.cpp
     world/gamemode/GameMode.cpp
     world/gamemode/CreativeMode.cpp
     world/entity/Mob.cpp
-    world/entity/LocalPlayer.cpp
     world/entity/Player.cpp
     world/entity/PrimedTnt.cpp
     world/entity/Entity.cpp
@@ -182,25 +312,44 @@ add_library(reminecraftpe-core STATIC
     world/entity/ItemEntity.cpp
     world/entity/PathfinderMob.cpp
     world/entity/Animal.cpp
+    world/entity/Skeleton.cpp
+    world/entity/Spider.cpp
+    world/entity/Zombie.cpp
+    world/entity/Arrow.cpp
+    world/entity/ThrownEgg.cpp
+    world/entity/Snowball.cpp
     world/entity/WaterAnimal.cpp
     world/entity/Monster.cpp
     world/entity/Rocket.cpp
+    world/entity/EntityFactory.cpp
+    world/entity/MobSpawner.cpp
     world/entity/MobFactory.cpp
-	world/entity/Chicken.cpp
-	world/entity/Cow.cpp
-	world/entity/Creeper.cpp
-	world/entity/Pig.cpp
-	world/entity/Sheep.cpp
-	world/entity/SynchedEntityData.cpp
-	world/entity/EntityCategories.cpp
-	world/entity/EntityType.cpp
-	world/entity/EntityTypeDescriptor.cpp
-	world/entity/MobCategory.cpp
+    world/entity/Chicken.cpp
+    world/entity/Cow.cpp
+    world/entity/Creeper.cpp
+    world/entity/Pig.cpp
+    world/entity/Sheep.cpp
+    world/entity/SynchedEntityData.cpp
+    world/entity/EntityCategories.cpp
+    world/entity/EntityType.cpp
+    world/entity/EntityTypeDescriptor.cpp
+    world/entity/MobCategory.cpp
+    world/entity/Squid.cpp
+    world/entity/Giant.cpp
+    world/entity/Slime.cpp
+    world/entity/PigZombie.cpp
+    world/entity/Fireball.cpp
+    world/entity/FlyingMob.cpp
+    world/entity/Ghast.cpp
+    world/entity/FishingHook.cpp
+    world/level/Brightness.cpp
     world/level/Dimension.cpp
     world/level/Material.cpp
     world/level/LevelListener.cpp
     world/level/TickNextTickData.cpp
     world/level/TilePos.cpp
+	world/level/TileSource.cpp
+	world/level/TileTickingQueue.cpp
     world/level/Explosion.cpp
     world/level/storage/LevelStorageSource.cpp
     world/level/storage/MemoryLevelStorageSource.cpp
@@ -210,7 +359,6 @@ add_library(reminecraftpe-core STATIC
     world/level/storage/LevelStorage.cpp
     world/level/storage/MemoryLevelStorage.cpp
     world/level/storage/ChunkStorage.cpp
-    world/level/storage/LevelSource.cpp
     world/level/storage/MemoryChunkStorage.cpp
     world/level/storage/ExternalFileLevelStorageSource.cpp
     world/level/path/Node.cpp
@@ -219,6 +367,7 @@ add_library(reminecraftpe-core STATIC
     world/level/path/BinaryHeap.cpp
     world/level/levelgen/feature/BirchFeature.cpp
     world/level/levelgen/feature/LargeFeature.cpp
+    world/level/levelgen/feature/FancyTreeFeature.cpp
     world/level/levelgen/feature/Feature.cpp
     world/level/levelgen/feature/LargeCaveFeature.cpp
     world/level/levelgen/feature/SpringFeature.cpp
@@ -229,6 +378,9 @@ add_library(reminecraftpe-core STATIC
     world/level/levelgen/feature/ClayFeature.cpp
     world/level/levelgen/feature/FlowerFeature.cpp
     world/level/levelgen/feature/SpruceFeature.cpp
+    world/level/levelgen/feature/PumpkinFeature.cpp
+    world/level/levelgen/feature/CactusFeature.cpp
+    world/level/levelgen/feature/VegetationFeature.cpp
     world/level/levelgen/biome/Biome.cpp
     world/level/levelgen/biome/BiomeSource.cpp
     world/level/levelgen/chunk/RandomLevelSource.cpp
@@ -244,21 +396,72 @@ add_library(reminecraftpe-core STATIC
     world/item/TilePlanterItem.cpp
     world/item/CameraItem.cpp
     world/item/TileItem.cpp
+    world/item/CoalItem.cpp
     world/item/Inventory.cpp
+    world/item/crafting/Recipes.cpp
+    world/item/crafting/FurnaceRecipes.cpp
+    world/item/crafting/SingleInputRecipe.cpp
+    world/item/crafting/ShapedRecipe.cpp
+    world/item/crafting/ShapelessRecipe.cpp
+    world/inventory/Container.cpp
+    world/inventory/ContainerListener.cpp
+    world/inventory/CompoundContainer.cpp
+    world/inventory/ContainerContentChangeListener.cpp
+    world/inventory/ContainerSizeChangeListener.cpp
+    world/inventory/ContainerMenu.cpp
+    world/inventory/InventoryMenu.cpp
+    world/inventory/CraftingMenu.cpp
+    world/inventory/FurnaceMenu.cpp
+    world/inventory/ChestMenu.cpp
+    world/inventory/TrapMenu.cpp
+    world/inventory/CreativeMenu.cpp
+    world/inventory/CreativeMenu_Console.cpp
+    world/inventory/Slot.cpp
+    world/inventory/ResultSlot.cpp
+    world/inventory/ArmorSlot.cpp
+    world/inventory/FurnaceResultSlot.cpp
+    world/inventory/CraftingContainer.cpp
+    world/inventory/ResultContainer.cpp
+    world/inventory/SimpleContainer.cpp
+    world/inventory/CraftContext.cpp
     world/item/DoorItem.cpp
-    world/item/ItemInstance.cpp
+    world/item/ItemStack.cpp
     world/item/RocketItem.cpp
     world/item/Item.cpp
+    world/item/FlintAndSteelItem.cpp
+    world/item/FoodItem.cpp
+    world/item/SeedItem.cpp
+    world/item/ArmorItem.cpp
+    world/item/HoeItem.cpp
+    world/item/DyePowderItem.cpp
+    world/item/CoalItem.cpp
+    world/item/ToolItem.cpp
+    world/item/WeaponItem.cpp
+    world/item/BowItem.cpp
+    world/item/AuxTileItem.cpp
+    world/item/ClothItem.cpp
+    world/item/DyeColor.cpp
+    world/item/EggItem.cpp
+    world/item/SlabItem.cpp
+    world/item/RedStoneItem.cpp
+    world/item/SnowballItem.cpp
+    world/item/SpawnEggItem.cpp
+    world/item/FishingRodItem.cpp
+    world/item/RecordingItem.cpp
+    world/item/BucketItem.cpp
     world/particle/RedDustParticle.cpp
     world/particle/TerrainParticle.cpp
+    world/particle/NoteParticle.cpp
     world/particle/BubbleParticle.cpp
     world/particle/ExplodeParticle.cpp
+    world/particle/ItemParticle.cpp
     world/particle/ParticleEngine.cpp
     world/particle/FlameParticle.cpp
     world/particle/SmokeParticle.cpp
     world/particle/Particle.cpp
     world/particle/LavaParticle.cpp
     world/particle/FireworkParticle.cpp
+    world/particle/TakeAnimationParticle.cpp
     world/tile/InvisibleTile.cpp
     world/tile/Sapling.cpp
     world/tile/TreeTile.cpp
@@ -286,6 +489,10 @@ add_library(reminecraftpe-core STATIC
     world/tile/OreTile.cpp
     world/tile/StairTile.cpp
     world/tile/SandStoneTile.cpp
+    world/tile/EntityTile.cpp
+    world/tile/ChestTile.cpp
+    world/tile/FurnaceTile.cpp
+    world/tile/MusicTile.cpp
     world/tile/FireTile.cpp
     world/tile/StoneSlabTile.cpp
     world/tile/LiquidTile.cpp
@@ -296,84 +503,172 @@ add_library(reminecraftpe-core STATIC
     world/tile/ObsidianTile.cpp
     world/tile/FarmTile.cpp
     world/tile/DoorTile.cpp
+    world/tile/CropsTile.cpp
     world/tile/RocketLauncherTile.cpp
+    world/tile/CactusTile.cpp
+    world/tile/TallGrass.cpp
+    world/tile/DeadBush.cpp
+    world/tile/PumpkinTile.cpp
+    world/tile/SoulSandTile.cpp
+    world/tile/GlowstoneTile.cpp
+    world/tile/Web.cpp
+    world/tile/FenceTile.cpp
+    world/tile/RedStoneDustTile.cpp
+    world/tile/LeverTile.cpp
+    world/tile/PressurePlateTile.cpp
+    world/tile/NotGateTile.cpp
+    world/tile/ButtonTile.cpp
+    world/tile/DiodeTile.cpp
+    world/tile/SnowTile.cpp
+    world/tile/CraftingTableTile.cpp
+    world/tile/DispenserTile.cpp
+    world/tile/RecordPlayerTile.cpp
+    world/tile/FenceGateTile.cpp
+    world/tile/TrapDoorTile.cpp
+    world/tile/CakeTile.cpp
+    world/tile/entity/TileEntity.cpp
+    world/tile/entity/TileEntityType.cpp
+    world/tile/entity/ChestTileEntity.cpp
+    world/tile/entity/FurnaceTileEntity.cpp
+    world/tile/entity/MusicTileEntity.cpp
+    world/tile/entity/DispenserTileEntity.cpp
+    world/Facing.cpp
     renderer/GL/GL.cpp
+    renderer/Attribute.cpp
+    renderer/ConstantBufferMetaData.cpp
+    renderer/ConstantBufferMetaDataManager.cpp
+    renderer/EnableScissorTest.cpp
+    renderer/EntityConstants.cpp
+    renderer/GlobalConstantBufferManager.cpp
+    renderer/GlobalConstantBuffers.cpp
+    renderer/MaterialPtr.cpp
+    renderer/MatrixStack.cpp
+    renderer/Mesh.cpp
+    renderer/PerFrameConstants.cpp
+    renderer/QuadIndexBuffer.cpp
+    renderer/RenderChunkConstants.cpp
+    renderer/RenderContextImmediate.cpp
+    renderer/RenderMaterial.cpp
+    renderer/ShaderConstants.cpp
+    renderer/ShaderGroupBase.cpp
+    renderer/StencilRefObject.cpp
+    renderer/TextureGroup.cpp
+    renderer/TexturePtr.cpp
+    renderer/UniformMetaData.cpp
+    renderer/VertexFieldFormat.cpp
+    renderer/VertexFormat.cpp
+    renderer/WeatherConstants.cpp
+    renderer/WorldConstants.cpp
+    renderer/hal/AlphaStateDescription.cpp
+    renderer/hal/BlendStateDescription.cpp
+    renderer/hal/DepthStencilStateDescription.cpp
+    renderer/hal/RenderStateDescription.cpp
+    renderer/hal/FogStateDescription.cpp
+    renderer/hal/ImageDescription.cpp
+    renderer/hal/RasterizerStateDescription.cpp
+    renderer/hal/StencilFaceDescription.cpp
+    renderer/hal/TextureDescription.cpp
+    renderer/hal/ViewportOrigin.cpp
+    renderer/hal/base/AlphaStateBase.cpp
+    renderer/hal/base/BlendStateBase.cpp
+    renderer/hal/base/BufferBase.cpp
+    renderer/hal/base/ConstantBufferBase.cpp
+    renderer/hal/base/ConstantBufferConstantsBase.cpp
+    renderer/hal/base/ConstantBufferContainerBase.cpp
+    renderer/hal/base/DepthStencilStateBase.cpp
+    renderer/hal/base/RenderStateBase.cpp
+    renderer/hal/base/FogStateBase.cpp
+    renderer/hal/base/FrameBufferObjectBase.cpp
+    renderer/hal/base/ImmediateBufferBase.cpp
+    renderer/hal/base/RasterizerStateBase.cpp
+    renderer/hal/base/RenderContextBase.cpp
+    renderer/hal/base/RenderContextStateBase.cpp
+    renderer/hal/base/RenderDeviceBase.cpp
+    renderer/hal/base/ShaderBase.cpp
+    renderer/hal/base/ShaderConstantBase.cpp
+    renderer/hal/base/ShaderConstantWithDataBase.cpp
+    renderer/hal/base/ShaderContextBase.cpp
+    renderer/hal/base/ShaderProgramBase.cpp
+    renderer/hal/base/VertexBufferStateBase.cpp
+    renderer/hal/base/TextureBase.cpp
+    renderer/hal/enums/BlendTarget_JsonParser.cpp
+    renderer/hal/enums/ComparisonFunc_JsonParser.cpp
+    renderer/hal/enums/PrimitiveMode_JsonParser.cpp
+    renderer/hal/enums/RenderStateType_JsonParser.cpp
+    renderer/hal/enums/ShaderPrimitiveTypes.cpp
+    renderer/hal/enums/ShaderStagesBits_JsonParser.cpp
+    renderer/hal/enums/StencilOp_JsonParser.cpp
+    renderer/hal/enums/TextureFiltering_JsonParser.cpp
+    renderer/hal/enums/VertexField.cpp
+    renderer/hal/enums/VertexField_JsonParser.cpp
+    renderer/hal/helpers/TextureHelper.cpp
+    renderer/hal/null/AlphaStateNull.cpp
+    renderer/hal/null/RenderStateNull.cpp
+    renderer/hal/null/FogStateNull.cpp
+    renderer/hal/null/VertexBufferStateNull.cpp
+    renderer/hal/interface/AlphaState.cpp
+    renderer/hal/interface/BlendState.cpp
+    renderer/hal/interface/Buffer.cpp
+    renderer/hal/interface/ConstantBuffer.cpp
+    renderer/hal/interface/ConstantBufferContainer.cpp
+    renderer/hal/interface/DepthStencilState.cpp
+    renderer/hal/interface/RenderState.cpp
+    renderer/hal/interface/FogState.cpp
+    renderer/hal/interface/ImmediateBuffer.cpp
+    renderer/hal/interface/RasterizerState.cpp
+    renderer/hal/interface/RenderContext.cpp
+    renderer/hal/interface/RenderDevice.cpp
+    renderer/hal/interface/Shader.cpp
+    renderer/hal/interface/ShaderConstantWithData.cpp
+    renderer/hal/interface/ShaderProgram.cpp
+    renderer/hal/interface/Texture.cpp
 )
-target_include_directories(reminecraftpe-core PUBLIC . ..)
+target_include_directories(nbcraft-core PUBLIC .)
+
+# OGL Shader variant build hack
+if(NBC_GFX_API STREQUAL "OGL_SHADERS")
+    target_compile_definitions(nbcraft-core PUBLIC FEATURE_GFX_SHADERS)
+    unset(NBC_GFX_API CACHE)
+    set(NBC_GFX_API "OGL" CACHE STRING "HAL GFX API")
+endif()
+
+if(NBC_GFX_API STREQUAL "OGL")
+    target_compile_definitions(nbcraft-core PUBLIC MCE_GFX_API_OGL=1)
+	add_subdirectory(renderer/hal/ogl nbcraft-renderer-ogl)
+    target_link_libraries(nbcraft-core PUBLIC nbcraft-renderer-ogl)
+elseif(NBC_GFX_API STREQUAL "D3D11")
+    target_compile_definitions(nbcraft-core PUBLIC MCE_GFX_API_D3D11=1 FEATURE_GFX_SHADERS)
+	add_subdirectory(renderer/hal/d3d11 nbcraft-renderer-d3d11)
+    target_link_libraries(nbcraft-core PUBLIC nbcraft-renderer-d3d11)
+elseif((NOT DEFINED NBC_GFX_API) OR (NBC_GFX_API STREQUAL "Null"))
+    target_compile_definitions(nbcraft-core PUBLIC MCE_GFX_API_NULL=1)
+	add_subdirectory(renderer/hal/null nbcraft-renderer-null)
+    target_link_libraries(nbcraft-core PUBLIC nbcraft-renderer-null)
+else()
+    message(FATAL_ERROR "An unknown or unsupported GFX API was specified: ${NBC_GFX_API}")
+endif()
 
 # RakNet
 add_subdirectory(../thirdparty/raknet raknet)
-target_link_libraries(reminecraftpe-core PUBLIC raknet)
+target_link_libraries(nbcraft-core PUBLIC raknet)
 
 # zlib
-add_library(zlib INTERFACE)
-if(EMSCRIPTEN)
+add_library(zlib-interface INTERFACE)
+if (NBC_SYSTEM_ZLIB)
+    # Use System ZLib, might be useful for some weird platform that needs to patch zlib
+    find_package(ZLIB REQUIRED)
+    target_link_libraries(zlib-interface INTERFACE ZLIB::ZLIB)
+elseif(EMSCRIPTEN)
     # Use Emscripten's ZLib
     set(ZLIB_FLAG -sUSE_ZLIB=1)
-    target_compile_options(zlib INTERFACE "${ZLIB_FLAG}")
-    target_link_options(zlib INTERFACE "${ZLIB_FLAG}")
+    target_compile_options(zlib-interface INTERFACE "${ZLIB_FLAG}")
+    target_link_options(zlib-interface INTERFACE "${ZLIB_FLAG}")
 else()
-    # Use System ZLib
-    find_package(ZLIB REQUIRED)
-    target_link_libraries(zlib INTERFACE ZLIB::ZLIB)
+    # Compile Vendored ZLib
+    add_subdirectory(../thirdparty/zlib zlib)
+    target_link_libraries(zlib-interface INTERFACE zlib)
 endif()
-target_link_libraries(reminecraftpe-core PUBLIC zlib)
+target_link_libraries(nbcraft-core PUBLIC zlib-interface)
 
-# Platform Dependencies
-if(USE_SDL)
-    # SDL
-    add_library(SDL INTERFACE)
-    if(ANDROID)
-        # Use Vendored SDL2 (Only For Android)
-        add_subdirectory(../thirdparty/SDL2/src SDL EXCLUDE_FROM_ALL)
-        target_link_libraries(SDL INTERFACE SDL2::SDL2)
-    elseif(EMSCRIPTEN)
-        # Use Emscripten's SDL2
-        set(SDL_FLAG -sUSE_SDL=2)
-        target_compile_options(SDL INTERFACE "${SDL_FLAG}")
-        target_link_options(SDL INTERFACE "${SDL_FLAG}")
-    else()
-        # Use System SDL2
-        find_package(SDL2 REQUIRED)
-        target_link_libraries(SDL INTERFACE SDL2::SDL2)
-    endif()
-    target_link_libraries(reminecraftpe-core PUBLIC SDL)
-
-    # OpenGL
-    if(NOT EMSCRIPTEN AND NOT ANDROID)
-        option(USE_GLES1_COMPATIBILITY_LAYER "Whether To Enable The GLESv1_CM Compatibility Layer" TRUE)
-    else()
-        set(USE_GLES1_COMPATIBILITY_LAYER TRUE CACHE BOOL "" FORCE)
-    endif()
-    if(USE_GLES1_COMPATIBILITY_LAYER)
-        set(GLES_COMPATIBILITY_LAYER_USE_SDL TRUE CACHE BOOL "" FORCE)
-        set(GLES_COMPATIBILITY_LAYER_DEPENDENCY SDL CACHE STRING "" FORCE)
-        set(GLES_COMPATIBILITY_LAYER_USE_ES3 FALSE CACHE BOOL "" FORCE)
-        add_subdirectory(../thirdparty/gles-compatibility-layer gles-compatibility-layer)
-        target_link_libraries(reminecraftpe-core PUBLIC gles-compatibility-layer)
-        target_compile_definitions(reminecraftpe-core PUBLIC USE_GLES1_COMPATIBILITY_LAYER)
-        if(EMSCRIPTEN)
-            # Use WebGL 2
-            target_link_options(reminecraftpe-core PUBLIC -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2)
-        endif()
-    else()
-        find_package(OpenGL REQUIRED)
-        target_link_libraries(reminecraftpe-core PUBLIC OpenGL::GL)
-    endif()
-elseif(USE_NATIVE_ANDROID)
-    # OpenGL
-    target_link_libraries(reminecraftpe-core PUBLIC EGL GLESv1_CM)
-endif()
-
-# Android Logging
-if(ANDROID)
-    target_link_libraries(reminecraftpe-core PUBLIC log)
-endif()
-
-# Sound Data
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../sound_data/sounds.h")
-    if(NOT DEFINED ENV{CI})
-        message(WARNING "Missing sound data! Did you run tools/grabsounds.py?")
-    endif()
-    target_compile_definitions(reminecraftpe-core PRIVATE MISSING_SOUND_DATA)
-endif()
+# OGG Support
+target_link_libraries(nbcraft-core PUBLIC stb_vorbis)

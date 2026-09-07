@@ -9,14 +9,14 @@
 #pragma once
 
 #include "AppPlatform.hpp"
+#include "AppPlatformListener.hpp"
 
-class App
+class App : public AppPlatformListener
 {
 protected:
 	App()
 	{
 		m_bWantToQuit = false;
-		m_pPlatform = nullptr;
 	}
 
 public:
@@ -24,11 +24,11 @@ public:
 	virtual void init();
 	virtual void update();
 	virtual void sizeUpdate(int newWidth, int newHeight);
+	virtual void setTextboxText(const std::string& text);
 
 	void destroy();
 	void draw();
 	void loadState(void*, int);
-	AppPlatform* platform();
 	void quit();
 	void saveState(void**, int);
 	bool wantToQuit();
@@ -40,7 +40,5 @@ public:
 	int field_8;
 	int field_C;
 	int field_10;
-
-	AppPlatform* m_pPlatform;
 };
 

@@ -12,105 +12,133 @@
 #include <vector>
 
 #include "common/Random.hpp"
+#include "common/Utils.hpp"
+#include "world/item/Tool.hpp"
 #include "world/phys/AABB.hpp"
-#include "world/level/storage/LevelSource.hpp"
 #include "world/level/Material.hpp"
 #include "world/entity/Entity.hpp"
-#include "world/level/levelgen/chunk/LevelChunk.hpp"
 #include "world/Facing.hpp"
 #include "world/level/TilePos.hpp"
+#include "world/level/TileEvent.hpp"
 #include "world/phys/Vec3.hpp"
 #include "world/phys/HitResult.hpp"
+#include "world/level/Brightness.hpp"
 
 class Level;
 class Entity;
 class Mob;
 class Player;
 class LiquidTile;
+class TileEntity;
+class TileSource;
 
 class Tile
 {
-public: // structs
+public: // types
+	enum RenderLayer
+	{
+		RENDER_LAYER_DOUBLE_SIDED,
+		RENDER_LAYER_BLEND,
+		RENDER_LAYER_OPAQUE,
+		RENDER_LAYER_OPTIONAL_ALPHATEST,
+		RENDER_LAYER_ALPHATEST,
+		RENDER_LAYER_SEASONS_OPAQUE,
+		RENDER_LAYER_SEASONS_OPTIONAL_ALPHATEST,
+		RENDER_LAYER_ALPHATEST_SINGLE_SIDE,
+		RENDER_LAYERS_MIN = RENDER_LAYER_DOUBLE_SIDED,
+		RENDER_LAYERS_MAX = RENDER_LAYER_ALPHATEST_SINGLE_SIDE,
+		RENDER_LAYERS_COUNT
+	};
 	struct SoundType
 	{
-		std::string m_name;
+		std::string name;
 		float volume, pitch;
 
-		SoundType(const std::string& name, float volume, float pitch) : m_name(name), volume(volume), pitch(pitch) {}
+		SoundType(const std::string& name, float volume, float pitch) : name(name), volume(volume), pitch(pitch) {}
 	};
 
 public: // virtual functions
 	virtual ~Tile();
 	virtual bool isCubeShaped() const;
-	virtual int getRenderShape() const;
+	virtual eRenderShape getRenderShape() const;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Woverloaded-virtual"
 	virtual Tile* setShape(float, float, float, float, float, float);
-	virtual void updateShape(const LevelSource*, const TilePos& pos);
+#pragma GCC diagnostic pop
+	virtual void updateShape(const TileSource&, const TilePos& pos);
 	virtual void updateDefaultShape();
-	virtual void addLights(Level*, const TilePos& pos);
-	virtual float getBrightness(const LevelSource*, const TilePos& pos) const;
-	virtual bool shouldRenderFace(const LevelSource*, const TilePos& pos, Facing::Name face) const;
+	virtual void addLights(TileSource&, const TilePos& pos);
+	virtual float getBrightness(TileSource&, const TilePos& pos) const;
+	virtual bool shouldRenderFace(TileSource&, const TilePos& pos, Facing::Name face) const;
 	virtual int getTexture(Facing::Name face) const;
-	virtual int getTexture(Facing::Name face, int data) const;
-	virtual int getTexture(const LevelSource*, const TilePos& pos, Facing::Name face) const;
-	virtual AABB* getAABB(const Level*, const TilePos& pos);
-	virtual void addAABBs(const Level*, const TilePos& pos, const AABB*, std::vector<AABB>&);
-	virtual AABB getTileAABB(const Level*, const TilePos& pos);
+	virtual int getTexture(Facing::Name face, TileData data) const;
+	virtual int getTexture(TileSource&, const TilePos& pos, Facing::Name face) const;
+	virtual AABB* getAABB(const TileSource&, const TilePos& pos);
+	virtual void addAABBs(TileSource&, const TilePos& pos, const AABB*, std::vector<AABB>&);
+	virtual AABB getTileAABB(TileSource&, const TilePos& pos);
 	virtual bool isSolidRender() const;
 	virtual bool mayPick() const;
-	virtual bool mayPick(int, bool) const;
-	virtual bool mayPlace(const Level*, const TilePos& pos) const;
+	virtual bool mayPick(TileData, bool) const;
+	virtual bool mayPlace(const TileSource&, const TilePos& pos) const;
+	virtual bool tryToPlace(TileSource&, const TilePos&, TileData);
+	virtual bool hasTileEntity() const;
 	virtual int getTickDelay() const;
-	virtual void tick(Level*, const TilePos& pos, Random*);
-	virtual void animateTick(Level*, const TilePos& pos, Random*);
-	virtual void destroy(Level*, const TilePos& pos, int data);
-	virtual void neighborChanged(Level*, const TilePos& pos, TileID tile);
-	virtual void onPlace(Level*, const TilePos& pos);
-	virtual void onRemove(Level*, const TilePos& pos);
-	virtual int getResource(int, Random*) const;
+	virtual void tick(TileSource& source, const TilePos& pos, Random* random);
+	virtual void animateTick(TileSource&, const TilePos& pos, Random*);
+	virtual void destroy(TileSource&, const TilePos& pos, TileData data);
+	virtual void neighborChanged(TileSource&, const TilePos& pos, TileID tile);
+	virtual void onPlace(TileSource&, const TilePos& pos);
+	virtual void onRemove(TileSource&, const TilePos& pos);
+	virtual int getResource(TileData, Random*) const;
 	virtual int getResourceCount(Random*) const;
-	virtual float getDestroyProgress(Player*) const;
-	virtual void spawnResources(Level*, const TilePos& pos, int);
-	virtual void spawnResources(Level*, const TilePos& pos, int, float);
-	virtual int spawnBurnResources(Level*, float, float, float);
+	virtual float getDestroyProgress(Player&) const;
+	virtual void spawnResources(TileSource&, const TilePos& pos, TileData data);
+	virtual void spawnResources(TileSource&, const TilePos& pos, TileData data, float);
+	virtual int spawnBurnResources(TileSource&, float, float, float);
 	virtual float getExplosionResistance(Entity*) const;
-	virtual HitResult clip(const Level*, const TilePos& pos, Vec3, Vec3);
-	virtual void wasExploded(Level*, const TilePos& pos);
-	virtual int getRenderLayer() const;
-	virtual int use(Level*, const TilePos& pos, Player*);
-	virtual void stepOn(Level*, const TilePos& pos, Entity*);
-	virtual void setPlacedOnFace(Level*, const TilePos& pos, Facing::Name face);
-	virtual void setPlacedBy(Level*, const TilePos& pos, Mob*);
-	virtual void prepareRender(Level*, const TilePos& pos);
-	virtual void attack(Level*, const TilePos& pos, Player*);
-	virtual void handleEntityInside(Level*, const TilePos& pos, const Entity*, Vec3&);
-	virtual int getColor(const LevelSource*, const TilePos& pos) const;
+	virtual HitResult clip(const TileSource&, const TilePos& pos, Vec3, Vec3);
+	virtual void wasExploded(TileSource&, const TilePos& pos);
+	virtual RenderLayer getRenderLayer(TileSource&, const TilePos&) const;
+	virtual bool use(const TilePos& pos, Player&);
+	virtual void stepOn(TileSource&, const TilePos& pos, Entity*);
+	virtual void setPlacedOnFace(TileSource&, const TilePos& pos, Facing::Name face);
+	virtual void setPlacedBy(const TilePos& pos, Mob&);
+	virtual void prepareRender(TileSource&, const TilePos& pos);
+	virtual void attack(const TilePos& pos, Player&);
+	virtual void handleEntityInside(TileSource&, const TilePos& pos, const Entity*, Vec3&);
+	virtual Color getColor(TileSource&, const TilePos& pos) const;
+	virtual Color getColor(Facing::Name face, TileData) const;
 	virtual bool isSignalSource() const;
-	virtual int getSignal(const LevelSource*, const TilePos& pos) const;
-	virtual int getSignal(const LevelSource*, const TilePos& pos, Facing::Name face) const;
-	virtual int getDirectSignal(const Level*, const TilePos& pos, Facing::Name face) const;
-	virtual void entityInside(Level*, const TilePos& pos, Entity*) const;
-	virtual void playerDestroy(Level*, Player*, const TilePos& pos, int);
-	virtual void playerWillDestroy(Player*, const TilePos& pos, int);
-	virtual bool canSurvive(const Level*, const TilePos& pos) const;
+	virtual int getSignal(const TileSource&, const TilePos& pos) const;
+	virtual int getSignal(const TileSource&, const TilePos& pos, Facing::Name face) const;
+	virtual int getDirectSignal(const TileSource&, const TilePos& pos, Facing::Name face) const;
+	virtual void entityInside(TileSource&, const TilePos& pos, Entity*) const;
+	virtual void playerDestroy(Player&, const TilePos& pos, TileData data);
+	virtual void playerWillDestroy(Player&, const TilePos& pos, TileData data);
+	virtual bool canSurvive(const TileSource&, const TilePos& pos) const;
 	virtual std::string getName() const;
 	virtual std::string getDescriptionId() const;
 	virtual Tile* setDescriptionId(std::string const&);
-	virtual void triggerEvent(Level*, const TilePos& pos, int, int);
+	virtual void triggerEvent(TileSource&, const TileEvent& event);
 	virtual Tile* setSoundType(Tile::SoundType const&);
-	virtual Tile* setLightBlock(int);
+	virtual Tile* setLightBlock(Brightness_t);
 	virtual Tile* setLightEmission(float);
 	virtual Tile* setExplodeable(float);
 	virtual Tile* setDestroyTime(float);
 	virtual Tile* setTicking(bool);
 	virtual int getSpawnResourcesAuxValue(int) const;
+	virtual bool isSeasonTinted() const;
+	Tile* setToolTypes(unsigned int toolMask);
+	Tile* setToolLevel(int toolLevel);
+	Tile* setToolTypesAndLevel(unsigned int toolMask, int toolLevel = 0);
 
 private:
 	void _init();
-	void _init(int ID, Material* pMaterial, int texture = 1);
+	void _init(TileID ID, Material* pMaterial, int texture = 1);
 	Tile() { _init(); } // consider making public?
 public: // functions
-	Tile(int ID, Material* pMaterial) { _init(ID, pMaterial); }
-	Tile(int ID, int texture, Material* pMaterial) { _init(ID, pMaterial, texture); }
+	Tile(TileID ID, Material* pMaterial) { _init(ID, pMaterial); }
+	Tile(TileID ID, int texture, Material* pMaterial) { _init(ID, pMaterial, texture); }
 
 	Tile* init();
 
@@ -118,9 +146,36 @@ public: // functions
 	bool containsY(const Vec3&);
 	bool containsZ(const Vec3&);
 
+	bool isSolid() const
+	{
+		return solid[m_ID];
+	}
+
+	bool operator==(const Tile& other) const
+	{
+		return m_ID == other.m_ID;
+	}
+
+	bool operator==(TileID id) const
+	{
+		return m_ID == id;
+	}
+
+	bool operator!=(const Tile& other) const
+	{
+		return m_ID != other.m_ID;
+	}
+
+	bool operator!=(TileID id) const
+	{
+		return m_ID != id;
+	}
+
 public: // static functions
 	static void initTiles();
 	static void teardownTiles();
+	static TileID TransformToValidBlockId(TileID tileId, TilePos pos);
+	static TileID TransformToValidBlockId(TileID tileId);
 
 public: // static variables
 	static std::string TILE_DESCRIPTION_PREFIX;
@@ -136,11 +191,12 @@ public: // static variables
 		SOUND_SAND,
 		SOUND_SILENT;
 	static Tile* tiles        [C_MAX_TILES];
-	static int   lightBlock   [C_MAX_TILES];
-	static int   lightEmission[C_MAX_TILES];
+	static Brightness_t   lightBlock   [C_MAX_TILES];
+	static Brightness_t   lightEmission[C_MAX_TILES];
 	static bool  shouldTick   [C_MAX_TILES];
 	static bool  solid        [C_MAX_TILES];
 	static bool  translucent  [C_MAX_TILES];
+	static float translucency [C_MAX_TILES];
 	static bool  isEntityTile [C_MAX_TILES];
 
 	// TODO
@@ -165,21 +221,6 @@ public: // static variables
 		* stoneSlab,
 		* stoneSlabHalf,
 		* cloth,
-		* cloth_00,
-		* cloth_10,
-		* cloth_20,
-		* cloth_30,
-		* cloth_40,
-		* cloth_50,
-		* cloth_60,
-		* cloth_70,
-		* cloth_01,
-		* cloth_11,
-		* cloth_21,
-		* cloth_31,
-		* cloth_41,
-		* cloth_51,
-		* cloth_61,
 		* flower,
 		* rose,
 		* mushroom1,
@@ -221,18 +262,93 @@ public: // static variables
 		* bookshelf,
 		* mossStone,
 		* cryingObsidian,
-		* rocketLauncher;
+		* rocketLauncher,
+		* cactus,
+		* tallGrass,
+		* deadBush,
+		* pumpkin,
+		* pumpkinLantern,
+		* netherrack,
+		* soulSand,
+		* glowstone,
+		* web,
+		* fence,
+		* fenceGate,
+		* redStoneDust,
+		* lever,
+		* pressurePlate_stone,
+		* pressurePlate_wood,
+		* notGate_off,
+		* notGate_on,
+		* button,
+		* diode_off,
+		* diode_on,
+		* craftingTable,
+		* crops,
+		* furnace,
+		* furnaceLit,
+		* musicBlock,
+		* chest,
+		* dispenser,
+		* recordPlayer,
+		* cake,
+		* trapDoor;
 
 public:
 	int m_TextureFrame;
-	int m_ID;
+	TileID m_ID;
 	AABB m_aabb;
 	const SoundType* m_pSound;
-	float field_28;
+	float m_gravity; // only affects particle gravity at the moment
 	Material* m_pMaterial;
-	float field_30;
+	float m_friction;
 	float m_hardness;
 	float m_blastResistance;
+	unsigned int m_toolMask;
+	int m_requiredToolLevel;
 	AABB m_aabbReturned;
 	std::string m_descriptionID;
+
+protected:
+	RenderLayer m_renderLayer;
+};
+
+class FullTile
+{
+private:
+	Tile* _tileType;
+public:
+	TileData data;
+
+private:
+	void _init(Tile* tileType, TileData data)
+	{
+		this->_tileType = tileType;
+		this->data = data;
+	}
+
+public:
+	FullTile(TileID tileId, TileData data)
+	{
+		_init(Tile::tiles[tileId], data);
+	}
+
+	FullTile(Tile* tileType, TileData data)
+	{
+		_init(tileType, data);
+	}
+
+public:
+	TileID getTypeId() const { return _tileType ? _tileType->m_ID : TILE_AIR; }
+	Tile* getType() const { return _tileType; }
+
+	bool operator==(const FullTile& other) const
+	{
+		return _tileType == other._tileType && data == other.data;
+	}
+
+	bool operator!=(const FullTile& other) const
+	{
+		return _tileType != other._tileType || data != other.data;
+	}
 };

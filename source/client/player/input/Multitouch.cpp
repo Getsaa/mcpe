@@ -6,7 +6,9 @@
 	SPDX-License-Identifier: BSD-1-Clause
  ********************************************************************/
 
+#include <stddef.h>
 #include "Multitouch.hpp"
+#include "client/app/Minecraft.hpp"
 
 int Multitouch::_activePointerCount;
 int Multitouch::_activePointerList[MAX_TOUCHES];
@@ -34,7 +36,7 @@ void Multitouch::commit()
 	_activePointerCount = 0;
 	for (int i = 0; i < MAX_TOUCHES; i++)
 	{
-		if (_pointers[i].isButtonDown(BUTTON_LEFT))
+		if (_pointers[i].isButtonDown(MOUSE_BUTTON_LEFT))
 		{
 			_activePointerList[_activePointerCount++] = i;
 		}
@@ -49,8 +51,9 @@ void Multitouch::feed(MouseButtonType a1, bool a2, int a3, int a4, int fingerId)
 
 	MouseDevice* pDevice = g(fingerId);
 	pDevice->feed(a1, a2, a3, a4);
+	Minecraft::SetInputMethod(InputMethod::TOUCHSCREEN);
 
-	if (a1 != BUTTON_NONE)
+	if (a1 != MOUSE_BUTTON_NONE)
 	{
 		if (a2)
 		{
@@ -85,7 +88,7 @@ int Multitouch::getFirstActivePointerIdEx()
 {
 	for (int i = 0; i < MAX_TOUCHES; i++)
 	{
-		if (_pointers[i].isButtonDown(BUTTON_LEFT))
+		if (_pointers[i].isButtonDown(MOUSE_BUTTON_LEFT))
 			return i;
 	}
 	
@@ -102,7 +105,7 @@ int Multitouch::getFirstActivePointerIdExThisUpdate()
 {
 	for (int i = 0; i < MAX_TOUCHES; i++)
 	{
-		if (_pointers[i].isButtonDown(BUTTON_LEFT))
+		if (_pointers[i].isButtonDown(MOUSE_BUTTON_LEFT))
 			return i;
 	}
 	
@@ -132,7 +135,7 @@ bool Multitouch::isPressed(int fingerId)
 
 bool Multitouch::next()
 {
-	if (_index + 1 >= _inputs.size())
+	if ((size_t)_index + 1 >= _inputs.size())
 		return false;
 
 	_index++;

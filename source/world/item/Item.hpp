@@ -9,85 +9,104 @@
 #pragma once
 
 #include <string>
+#include <stdint.h>
+#include <vector>
+
+// needed for TileData and Tile IDs
 #include "common/Utils.hpp"
+#include "common/Random.hpp"
+#include "common/math/Color.hpp"
+
 #include "world/level/Material.hpp"
-#include "ItemInstance.hpp"
 #include "world/level/TilePos.hpp"
 #include "world/Facing.hpp"
 
-#define C_MAX_ITEMS (C_MAX_TILES * 2)
+#include "ItemStack.hpp"
 
-class ItemInstance; // in case we're included from ItemInstance.hpp
+#define C_MAX_ITEMS (C_MAX_TILES * 256)
+
+class ItemStack; // in case we're included from ItemStack.hpp
 
 class Level;
 class Entity;
 class Mob;
 class Player;
 class Tile;
+class CompoundTag;
 
 class Item
 {
 public: // Sub structures
-	struct Tier
+	enum EquipmentSlot
 	{
-		int   field_0;
-		int   m_Durability;
-		float m_HitStrength;
-		int   field_C;
-
-		Tier(int a, int b, float c, int d) :
-			field_0(a),
-			m_Durability(b),
-			m_HitStrength(c),
-			field_C(d)
-		{}
-
-		// Item tiers
-		static Tier WOOD, STONE, IRON, EMERALD, GOLD;
+		SLOT_NONE = -1,
+		SLOT_FEET,
+		SLOT_LEGS,
+		SLOT_CHEST,
+		SLOT_HEAD
 	};
 
 public: // Methods
-	Item(int ID);
+	Item(int ID = TILE_AIR);
 
 	//@NOTE: The setters are virtual for whatever reason
 
 	virtual Item* setIcon(int icon);
-	virtual Item* setMaxStackSize(int mss);
 	virtual Item* setIcon(int ix, int iy);
-	virtual int getIcon(const ItemInstance*) const;
-	virtual bool useOn(ItemInstance*, Level*, const TilePos& pos, Facing::Name face);
-	virtual bool useOn(ItemInstance*, Player*, Level*, const TilePos& pos, Facing::Name face);
-	virtual float getDestroySpeed(ItemInstance*, Tile*);
-	virtual ItemInstance* use(ItemInstance*, Level*, Player*);
-	virtual int getMaxStackSize();
-	virtual int getLevelDataForAuxValue(int x);
-	virtual bool isStackedByData();
-	virtual int getMaxDamage();
-	virtual void hurtEnemy(ItemInstance*, Mob*);
-	virtual void mineBlock(ItemInstance*, const TilePos& pos, Facing::Name face);
-	virtual int getAttackDamage(Entity*);
-	virtual bool canDestroySpecial(Tile*);
-	virtual void interactEnemy(ItemInstance*, Mob*);
+	virtual Item* pushIconLayer(int icon);
+	virtual Item* pushIconLayer(int ix, int iy);
+	virtual Item* setMaxStackSize(int mss);
+	virtual int getIcon(const ItemStack* itemStack = nullptr, int layer = 0) const;
+	virtual size_t getIconLayerCount() const;
+	virtual bool useOn(ItemStack&, Player&, const TilePos& pos, Facing::Name face) const;
+	virtual float getDestroySpeed(ItemStack&, const Tile*) const;
+	virtual bool use(ItemStack&, Mob& user) const;
+	virtual void releaseUsing(ItemStack&, Level&, Mob&, int durationLeft) const;
+	virtual int getMaxStackSize() const;
+	virtual TileData getLevelDataForAuxValue(int x) const;
+	virtual bool isStackedByData() const;
+	virtual int getMaxDamage() const;
+	virtual Item* setMaxDamage(int);
+	virtual void hurtEnemy(ItemStack&, Mob&) const;
+	virtual void mineBlock(ItemStack&, const TilePos& pos, Facing::Name face, Mob& mob) const;
+	virtual int getAttackDamage(Entity&) const;
+	virtual bool canDestroySpecial(const Tile*) const;
+	virtual void interactEnemy(ItemStack&, Mob&) const;
 	virtual Item* handEquipped();
-	virtual bool isHandEquipped();
-	virtual bool isMirroredArt();
+	virtual bool isHandEquipped() const;
+	virtual bool isMirroredArt() const;
 	virtual Item* setDescriptionId(const std::string& desc);
-	virtual std::string getDescription();
-	virtual std::string getDescription(ItemInstance*);
-	virtual std::string getDescriptionId();
-	virtual std::string getDescriptionId(ItemInstance*);
+	virtual std::string getDescription() const;
+	virtual std::string getDescription(ItemStack*) const;
+	virtual std::string getDescriptionId() const;
+	virtual std::string getDescriptionId(ItemStack&) const;
 	virtual Item* setCraftingRemainingItem(Item*);
-	virtual Item* getCraftingRemainingItem();
-	virtual bool hasCraftingRemainingItem();
-	virtual std::string getName();
+	virtual Item* getCraftingRemainingItem() const;
+	virtual bool hasCraftingRemainingItem() const;
+	virtual std::string getName() const;
+	virtual std::string getHovertextName() const;
+	virtual std::string getName(ItemStack&) const;
+	virtual std::string getHovertextName(ItemStack&) const;
+	virtual void onCraftedBy(ItemStack*, Player*, Level*);
+	virtual void inventoryTick(ItemStack*, Level*, Entity*, int, bool);
+	virtual bool isDamageable() const;
+	virtual Color getColor(const ItemStack* itemStack = nullptr, int layer = 0) const;
+	virtual int buildIdAux(int16_t auxValue, const CompoundTag* userData = nullptr) const;
+
+	// Armor/defense methods
+	virtual EquipmentSlot getEquipmentSlot() const;
+	virtual const std::string& getArmorTexture() const;
+	virtual int getDefense() const;
 
 	static void initItems();
+
+private:
+	std::vector<int> m_icons;
 	
 public: // Item class fields
 	int m_itemID;
 	int m_maxStackSize;
 	int m_maxDamage;
-	int m_icon;
 	bool m_bHandEquipped;
 	bool m_bStackedByData;
 	Item* m_pCraftingRemainingItem;
@@ -98,6 +117,7 @@ public: // Static declarations
 
 	// The item array.
 	static Item* items[C_MAX_ITEMS];
+	static Random random;
 
 	// Common item definitions
 	static Item
@@ -147,6 +167,10 @@ public: // Static declarations
 		*chestplate_cloth,
 		*leggings_cloth,
 		*boots_cloth,
+		*helmet_chain,
+		*chestplate_chain,
+		*leggings_chain,
+		*boots_chain,
 		*helmet_iron,
 		*chestplate_iron,
 		*leggings_iron,
@@ -198,8 +222,13 @@ public: // Static declarations
 		*cake,
 		*bed,
 		*diode,
+		*cookie,
+		*map,
+		*shears,
 		*record_01,
 		*record_02,
 		*camera,
-		*rocket;
+		*spawnEgg,
+		*rocket,
+		*quiver;
 };

@@ -8,27 +8,42 @@
 
 #include "FallingTile.hpp"
 #include "world/level/Level.hpp"
+#include "world/level/TileSource.hpp"
+#include "nbt/CompoundTag.hpp"
 
-FallingTile::FallingTile(Level* level) : Entity(level),
-	field_E0(0)
-{
-}
+#define DATA_TILE_ID (20)
 
-FallingTile::FallingTile(Level* level, const Vec3& pos, int id) : Entity(level),
-	field_E0(0)
+void FallingTile::_init(const Vec3& pos, int id)
 {
-	m_id = id;
-    m_bBlocksBuilding = false;
+	m_renderType = RENDER_FALLING_TILE;
+	m_pDescriptor = &EntityTypeDescriptor::fallingTile;
+
+	_defineEntityData();
+
+	setTile(id);
+	m_time = 0;
+	m_bBlocksBuilding = false;
 	setSize(0.98f, 0.98f);
 	m_heightOffset = m_bbHeight * 0.5f;
 	setPos(pos);
 	m_oPos = pos;
 	m_bMakeStepSound = false;
 	m_vel = Vec3::ZERO;
+}
 
-#if defined(ENH_ALLOW_SAND_GRAVITY)
-	field_C8 = RENDER_FALLING_TILE;
-#endif
+FallingTile::FallingTile(TileSource& source) : Entity(source)
+{
+	_init(Vec3::ZERO, TILE_AIR);
+}
+
+FallingTile::FallingTile(TileSource& source, const Vec3& pos, int id) : Entity(source)
+{
+	_init(pos, id);
+}
+
+void FallingTile::_defineEntityData()
+{
+	m_entityData.define<int32_t>(DATA_TILE_ID, TILE_AIR);
 }
 
 float FallingTile::getShadowHeightOffs() const
@@ -43,11 +58,11 @@ bool FallingTile::isPickable() const
 
 void FallingTile::tick()
 {
-	if (!m_id)
+	if (getTile() == TILE_AIR)
 		remove();
 
 	m_oPos = m_pos;
-	field_E0++;
+	m_time++;
 
 	m_vel.y -= 0.04f;
 	move(m_vel);
@@ -58,13 +73,16 @@ void FallingTile::tick()
 
 	// if we're inside one of our own tiles, clear it.
 	// Assumes we started there
-	if (m_pLevel->getTile(tilePos) == m_id)
-		m_pLevel->setTile(tilePos, TILE_AIR);
+	if (m_pTileSource->getTile(tilePos) == getTile())
+		m_pTileSource->setTile(tilePos, TILE_AIR);
 
-	if (!m_onGround)
+	if (!m_bOnGround)
 	{
-		if (field_E0 > 100 && !m_pLevel->m_bIsMultiplayer)
+		if (m_time > 100 && !m_pTileSource->getLevelConst().m_bIsClientSide)
+		{
+			spawnAtLocation(getTile(), 1);
 			remove();
+		}
 
 		return;
 	}
@@ -73,17 +91,26 @@ void FallingTile::tick()
 	m_vel.z *= 0.7f;
 	m_vel.y *= -0.5f;
 	remove();
-	if (m_pLevel->mayPlace(m_id, tilePos, true))
-	{
-		m_pLevel->setTile(tilePos, m_id);
-	}
-	else
-	{
-		// @TODO: spawn resources?
-	}
+	if (!Tile::tiles[getTile()]->tryToPlace(getTileSource(), tilePos, 0))
+		spawnAtLocation(getTile(), 1);
 }
 
-Level* FallingTile::getLevel()
+void FallingTile::addAdditionalSaveData(CompoundTag& tag) const
 {
-	return m_pLevel;
+	tag.putInt8("Tile", getTile());
+}
+
+void FallingTile::readAdditionalSaveData(const CompoundTag& tag)
+{
+	setTile(tag.getInt8("Tile"));
+}
+
+int FallingTile::getTile() const
+{
+	return m_entityData.get<int32_t>(DATA_TILE_ID);
+}
+
+void FallingTile::setTile(int id)
+{
+	m_entityData.set<int32_t>(DATA_TILE_ID, id);
 }

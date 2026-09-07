@@ -9,11 +9,17 @@
 #pragma once
 
 #include "ItemInHandRenderer.hpp"
+#include "client/gui/MenuPointer.hpp"
+#include "renderer/MatrixStack.hpp"
+#include "renderer/hal/interface/DepthStencilState.hpp"
 
 class Minecraft;
+class Timer;
 class Entity;
+class Dimension;
 
 class LevelRenderer;
+class ParticleEngine;
 class GameRenderer
 {
 private:
@@ -22,39 +28,46 @@ public:
 	GameRenderer() { _init(); }
 	GameRenderer(Minecraft*);
 	~GameRenderer();
+
+private:
+	void _buildPointerMesh();
+	void _initResources();
+	void _clearFrameBuffer();
+	void _renderItemInHand(float, int);
+	void _renderDebugOverlay(float a);
+	void _renderVertexGraph(int vertices, int h);
+
+public:
 	void saveMatrices();
 	void setupCamera(float f, int i);
-	void bobHurt(float);
-	void bobView(float);
-	void moveCameraToPlayer(float);
+	void bobHurt(Matrix& matrix, float f);
+	void bobView(Matrix& matrix, float f);
+	void moveCameraToPlayer(Matrix& matrix, float f);
 
 #ifndef ORIGINAL_CODE
 	void renderNoCamera();
 #endif
 
 	void renderLevel(float);
-	void render(float);
+	void renderFramedItems(const Vec3& camPos, LevelRenderer& levelRenderer, const Entity& camera, float f, ParticleEngine& particleEngine, float i);
+	void render(const Timer&);
+	void renderWeather(float f);
+	void renderPointer(const MenuPointer& pointer);
+	void setLevel(Level* pLevel, Dimension* pDimension);
+	// Range: 0.0 - 1.0
+	void setGamma(float gamma);
 	void tick();
 	void setupGuiScreen();
 	void onGraphicsReset();
-	void zoomRegion(float a, float b, float c);
+	void zoomRegion(float zoom, const Vec2& region);
 	void unZoomRegion();
-	void setupClearColor(float f);
-	void setupFog(int i);
 	void pick(float);
-	void renderItemInHand(float, int);
-	void prepareAndRenderClouds(LevelRenderer* pLR, float f);
-	void renderWeather(float f);
+	void applyTurnDelta(const Vec2& turnDelta);
 
-	float getFov(float f);
+	float getFov(float f, bool applyFovMod = true);
+	void setFovBase(float fov);
 
-public:
-	ItemInHandRenderer* m_pItemInHandRenderer;
-	Minecraft* m_pMinecraft;
-
-	float field_8;
-	int field_C;
-	Entity* field_10;
+protected:
 	float field_14;
 	float field_18;
 	float field_1C;
@@ -67,30 +80,42 @@ public:
 	float field_38;
 	float field_3C;
 	float field_40;
-	float field_44;
-	float field_48;
-	float field_4C;
+	float m_zoom;
+	Vec2 m_zoomRegion;
 	float field_50;
 	float field_54;
 	float field_58;
 	float field_5C;
-	float field_60;
-	float field_64;
-	float field_68;
-	float field_6C;
-	float field_70;
-	float field_74;
-	float field_78;
-	float field_7C;
-	float field_80;
+	Vec2 m_smoothTurnDelta;
+	Vec2 m_turnDelta;
 	float field_84;
+	mce::Mesh m_pointerMesh;
 
-	float m_matrix_projection[16];
-	float m_matrix_model_view[16];
+public:
+	ItemInHandRenderer* m_pItemInHandRenderer;
+	Minecraft* m_pMinecraft;
+	Level* m_pLevel;
+
+	float m_renderDistance;
+	int field_C;
+	Entity* m_pHovered;
+	// protected fields
+
+	Matrix m_mtxProj;
+	Matrix m_mtxView;
 
 	int m_shownFPS, m_shownChunkUpdates, m_lastUpdatedMS;
 
+	int m_keepPic;
+
 	int m_envTexturePresence;
 	Random m_random;
+
+#ifdef ENH_FOV_MODIFIER
+	float m_fovBase;
+	float m_fovModPrev;
+	float m_fovMod;
+	float m_fovModTarget;
+#endif
 };
 

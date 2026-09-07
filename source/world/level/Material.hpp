@@ -6,9 +6,9 @@
 	SPDX-License-Identifier: BSD-1-Clause
  ********************************************************************/
 
-#include "common/Utils.hpp"
-
 #pragma once
+
+#include "compat/LegacyCPP.hpp"
 
 class Material
 {
@@ -21,11 +21,17 @@ public:
 	static void teardownMaterials();
 
 	virtual bool isLiquid() const;
+	virtual bool isMineable() const;
 	virtual bool letsWaterThrough() const;
 	virtual bool isSolid() const;
 	virtual bool blocksLight() const;
 	virtual bool blocksMotion() const;
 	virtual bool isFlammable() const;
+	virtual Material* setNotAlwaysDestroyable();
+
+	Material* setToolTypes(unsigned int toolMask);
+	Material* setToolLevel(int toolLevel);
+	Material* setToolTypesAndLevel(unsigned int toolMask, int toolLevel = 0);
 
 public:
 	static Material
@@ -53,10 +59,15 @@ public:
 		*clay,
 		*vegetable,
 		*portal,
-		*cake;
+		*cake,
+		*web;
 
 public:
 	bool m_bFlammable;
+	bool m_bMineable;
+
+	unsigned int m_toolMask;
+	int m_requiredToolLevel;
 };
 
 class GasMaterial : public Material

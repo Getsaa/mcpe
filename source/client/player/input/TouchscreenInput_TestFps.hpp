@@ -24,19 +24,23 @@ public:
 
 	// IMoveInput
 	void releaseAllKeys() override;
-	void setKey(int eventKey, bool eventKeyState) override;
+	void setKey(UserActionID, bool eventKeyState) override;
 	void setScreenSize(int width, int height) override;
 	void tick(Player*) override;
 	void render(float f) override;
 
 	RectangleArea getRectangleArea();
+	RectangleArea getSneakArea();
 	bool isButtonDown(int key);
+#ifdef ENH_NEW_TOUCH_CONTROLS
+	void setSneakExcludeRef(RectangleArea* pRect);
+#endif
 
 private:
 	RectangleArea m_rectArea;
 	bool field_30[10];
 	Options* m_pOptions;
-	bool field_40;
+	bool m_bForwardBeingHeld;
 	bool m_bJumpBeingHeld;
 	TouchAreaModel m_touchAreaModel;
 	Minecraft* m_pMinecraft;
@@ -45,6 +49,22 @@ private:
 	PolygonArea* m_pAreaForward;
 	PolygonArea* m_pAreaBackward;
 	PolygonArea* m_pAreaJump;
-	bool field_6C[8];
+#ifdef ENH_NEW_TOUCH_CONTROLS
+	PolygonArea* m_pAreaForwardLeft;
+	PolygonArea* m_pAreaForwardRight;
+	PolygonArea* m_pAreaSneak;
+	PolygonArea* m_pAreaFlyUp;
+	PolygonArea* m_pAreaFlyDown;
+	float m_fButtonSize;
+	float m_fRightSideX;
+	float m_fMiddleY;
+	RectangleArea* m_pSneakExcludeRef;
+#endif
+	bool field_6C[10];
+	bool m_bSneakBeingHeld;
+	float m_fLastSneakTapTime;
+	float m_fLastSneakToggleTime;
+	bool m_bPersistentSneak;
+	RectangleArea m_rightRectArea;
 };
 

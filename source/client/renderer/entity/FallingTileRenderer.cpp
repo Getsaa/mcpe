@@ -7,41 +7,33 @@
  ********************************************************************/
 
 #include "GameMods.hpp"
-#if defined(ENH_ALLOW_SAND_GRAVITY)
+#ifdef ENH_ALLOW_SAND_GRAVITY
 #include "FallingTileRenderer.hpp"
+#include "client/renderer/entity/EntityRenderDispatcher.hpp"
+#include "client/renderer/renderer/RenderMaterialGroup.hpp"
+#include "renderer/MatrixStack.hpp"
 #include "world/entity/FallingTile.hpp"
+
+FallingTileRenderer::Materials::Materials()
+{
+	MATERIAL_PTR(switchable, heavy_tile);
+}
 
 FallingTileRenderer::FallingTileRenderer()
 {
 	m_shadowRadius = 0.5f;
 }
 
-void FallingTileRenderer::render(Entity* entity, float x, float y, float z, float a6, float a7)
+void FallingTileRenderer::render(const Entity& entity, const Vec3& pos, float rot, float a)
 {
-	FallingTile* fallingTile = (FallingTile*)entity;
-
-	glPushMatrix();
-	glTranslatef(x, y, z);
+	const FallingTile& tile = (const FallingTile&)entity;
+	
+	MatrixStack::Ref matrix = MatrixStack::World.push();
+	matrix->translate(pos);
 
 	bindTexture(C_TERRAIN_NAME);
 
-	// @NOTE: Useless assignment. Already being done by the renderTile function
-	Tesselator::instance.color(1.0f, 1.0f, 1.0f);
-
-	// Render the base
-#ifdef ENH_SHADE_HELD_TILES
-#define ARGPATCH , entity->getBrightness(0.0f)
-#else
-#define ARGPATCH
-#endif
-	
-	m_tileRenderer.renderTile(Tile::tiles[fallingTile->m_id], 0 ARGPATCH);
-
-	glPopMatrix();
-
-#ifdef ARGPATCH
-#undef ARGPATCH
-#endif
+	m_pDispatcher->m_tileRenderer->renderTile(FullTile(tile.getTile(), 0), m_heavyMaterials.heavy_tile);
 }
 
 #endif

@@ -9,7 +9,6 @@
 #pragma once
 #include <string>
 #include "world/level/levelgen/chunk/LevelChunk.hpp"
-#include "common/Utils.hpp"
 #include "GameMods.hpp"
 class Level;
 class LevelChunk;
@@ -21,7 +20,7 @@ public:
 	virtual bool hasChunk(const ChunkPos& pos) = 0;
 	virtual LevelChunk* getChunk(const ChunkPos& pos) = 0;
 	virtual LevelChunk* create(const ChunkPos& pos) = 0;
-	virtual LevelChunk* getChunkDontCreate(const ChunkPos& pos) = 0;
+	virtual LevelChunk* getChunkDontCreate(const ChunkPos& pos) = 0; // renamed to getAvailableChunk on 0.12.1?
 	virtual void postProcess(ChunkSource*, const ChunkPos& pos) = 0;
 	virtual int  tick() = 0;
 	virtual bool shouldSave() = 0;

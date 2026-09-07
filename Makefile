@@ -1,71 +1,154 @@
-# ReMinecraftPE - Makefile for linux
+# Makefile build
+# meant to be extremely portable to weird unix-like systems
 
-# Commonly included directories.
-SRC_DIR=source
-BLD_DIR=build
-RKN_DIR=thirdparty/raknet
-ZLB_DIR=thirdparty/zlib
-PLT_DIR=platforms
+CC := cc
+CXX := c++
+AR := ar
 
-# Target executable's name.
-TARGET=minecraftcpp
+CFLAGS := -O2 -DNDEBUG
+CXXFLAGS := -O2 -DNDEBUG
 
-# Compilation flags for C++ source files
-CXXFLAGS=-Isource -I. -Ithirdparty/raknet -Ithirdparty/zlib -DUSE_SDL -DUSE_OPENAL -DUSE_MATH_DEFINES -DHANDLE_CHARS_SEPARATELY -O3 -MMD
+OS := $(shell uname -s)
 
-# Compilation flags for zlib source files
-ZLIBFLAGS=-O3 -I. -MMD
+DEFINES := -DHANDLE_CHARS_SEPARATELY -DRAPIDJSON_NO_THREAD_LOCAL -DSTBI_NO_THREAD_LOCALS
+INCLUDES := -I. -Isource -Ithirdparty/zlib -Ithirdparty/raknet -Ithirdparty/rapidjson -Ithirdparty/stb_image/include
 
-# Link flags
-LINKFLAGS=-L/opt/vc/lib/ -lpng -lpthread -lSDL2 -lGL -lopenal -lGLU
+ifdef MC_VERSION
+DEFINES += -DMC_VERSION=$(MC_VERSION)
+endif
 
-#include everything in source/, plus certain files from platforms
-SRC_FILES = $(shell find $(SRC_DIR)                       -type f -name '*.cpp')
-PLT_FILES = $(shell find $(PLT_DIR)/sdl $(PLT_DIR)/openal -type f -name '*.cpp')
-RKN_FILES = $(shell find $(RKN_DIR)                       -type f -name '*.cpp')
-ZLB_FILES = $(shell find $(ZLB_DIR)                       -type f -name '*.c')
+ifeq ($(OS),Darwin)
+LIBS := -lmx
+else
+ifeq ($(OS),SunOS)
+LIBS := -lsocket -lnsl
+else
+LIBS := -L/usr/X11R6/lib -pthread
+INCLUDES += -I/usr/X11R6/include
+endif
+endif
 
-OBJ_FILES = \
-	$(patsubst $(SRC_DIR)/%,$(BLD_DIR)/s/%,$(SRC_FILES:.cpp=.o)) \
-	$(patsubst $(PLT_DIR)/%,$(BLD_DIR)/p/%,$(PLT_FILES:.cpp=.o)) \
-	$(patsubst $(RKN_DIR)/%,$(BLD_DIR)/r/%,$(RKN_FILES:.cpp=.o)) \
-	$(patsubst $(ZLB_DIR)/%,$(BLD_DIR)/z/%,$(ZLB_FILES:.c=.o))
-	
-DEP_FILES = \
-	$(patsubst $(SRC_DIR)/%,$(BLD_DIR)/s/%,$(SRC_FILES:.cpp=.d)) \
-	$(patsubst $(PLT_DIR)/%,$(BLD_DIR)/p/%,$(PLT_FILES:.cpp=.d)) \
-	$(patsubst $(RKN_DIR)/%,$(BLD_DIR)/r/%,$(RKN_FILES:.cpp=.d)) \
-	$(patsubst $(ZLB_DIR)/%,$(BLD_DIR)/z/%,$(ZLB_FILES:.c=.d))
+HEADERS := $(wildcard compat/*.h) \
+           $(wildcard compat/*.hpp) \
+           $(wildcard thirdparty/stb_image/include/*.h) \
+           $(wildcard thirdparty/raknet/*.h) \
+           $(wildcard thirdparty/zlib/*.h) \
+           $(shell find source -name '*.hpp') \
+           $(shell find source -name '*.h') \
+           $(shell find platforms -name build -prune -name '*.hpp') \
+           $(shell find platforms -name build -prune -name '*.h') \
+           $(shell find thirdparty/rapidjson -name '*.h')
+C_SRCS := $(wildcard thirdparty/zlib/*.c) thirdparty/stb_image/src/stb_image_impl.c thirdparty/stb_image/include/stb_vorbis.c
+CXX_SRCS := $(shell find source \
+    -path source/renderer/platform -prune -o \
+    -path source/renderer/hal/ogl -prune -o \
+    -path source/renderer/hal/d3d11 -prune -o \
+    -path source/renderer/hal/d3d9 -prune -o \
+    -path source/renderer/hal/d3d -prune -o \
+    -path source/renderer/hal/dxgi -prune -o \
+    -path source/renderer/hal/null -prune -o \
+    -name '*.cpp' -print) \
+    source/renderer/hal/null/AlphaStateNull.cpp \
+    source/renderer/hal/null/RenderStateNull.cpp \
+    source/renderer/hal/null/FogStateNull.cpp \
+    $(wildcard thirdparty/raknet/*.cpp)
 
-#default target.
-.PHONY = all
-all: program
+# Makefile only supports SDL1 or SDL2 for now, and desktop only
+PLATFORM := sdl2
+GFX_API := OGL
+ifeq ($(PLATFORM),sdl2)
+HEADERS += $(wildcard thirdparty/SDL/*.h)
+DEFINES += -DUSE_SDL -DUSE_SDL2
+SDL2_LIBS := $(shell pkg-config --libs sdl2)
+LIBS += $(SDL2_LIBS)
+else
+HEADERS += $(wildcard thirdparty/SDL/*.h)
+DEFINES += -DUSE_SDL -DUSE_SDL1
+SDL1_LIBS := $(shell pkg-config --libs sdl)
+LIBS += $(SDL1_LIBS)
+endif
+CXX_SRCS += platforms/sdl/$(PLATFORM)/main.cpp $(wildcard platforms/sdl/base/*.cpp) $(wildcard platforms/sdl/$(PLATFORM)/base/*.cpp) $(wildcard platforms/sdl/$(PLATFORM)/desktop/*.cpp)
+ifeq ($(GFX_API),OGL)
+HEADERS += $(wildcard thirdparty/GL/*)
+DEFINES += -DMCE_GFX_API_OGL=1
+CXX_SRCS += $(shell find source/renderer/hal/ogl -name '*.cpp') $(wildcard source/renderer/platform/ogl/*.cpp)
+ifeq ($(OS),Darwin)
+LIBS += -framework OpenGL
+else
+LIBS += -lGL
+endif
+else
+ifeq ($(GFX_API),OGL_SHADERS)
+HEADERS += $(wildcard thirdparty/GL/*)
+DEFINES += -DMCE_GFX_API_OGL=1 -DFEATURE_GFX_SHADERS
+CXX_SRCS += $(shell find source/renderer/hal/ogl -name '*.cpp') $(wildcard source/renderer/platform/ogl/*.cpp)
+ifeq ($(OS),Darwin)
+LIBS += -framework OpenGL
+else
+LIBS += -lGL
+endif
+else
+ifeq ($(GFX_API),NULL)
+DEFINES += -DMCE_GFX_API_NULL=1
+# why does the null hal have to have some sources included by default its so dumb
+CXX_SRCS += \
+    source/renderer/hal/null/BlendStateNull.cpp \
+    source/renderer/hal/null/BufferNull.cpp \
+    source/renderer/hal/null/ConstantBufferContainerNull.cpp \
+    source/renderer/hal/null/DepthStencilStateNull.cpp \
+    source/renderer/hal/null/ImmediateBufferNull.cpp \
+    source/renderer/hal/null/RasterizerStateNull.cpp \
+    source/renderer/hal/null/RenderContextNull.cpp \
+    source/renderer/hal/null/RenderDeviceNull.cpp \
+    source/renderer/hal/null/ShaderConstantNull.cpp \
+    source/renderer/hal/null/ShaderConstantWithDataNull.cpp \
+    source/renderer/hal/null/ShaderNull.cpp \
+    source/renderer/hal/null/ShaderProgramNull.cpp \
+    source/renderer/hal/null/TextureNull.cpp
+endif
+endif
+endif
 
-#link rules for the executable
-$(TARGET): $(OBJ_FILES)
-	$(CXX) -o $@ $^ $(LINKFLAGS)
+AUDIO_LIBRARY := openal
+INCLUDES += -Iplatforms/audio/$(AUDIO_LIBRARY)
+CXX_SRCS += $(wildcard platforms/audio/$(AUDIO_LIBRARY)/*.cpp)
+ifeq ($(AUDIO_LIBRARY),openal)
+ifeq ($(OS),Darwin)
+LIBS += -framework OpenAL
+else
+LIBS += -lopenal
+endif
+endif
 
-#include header dependencies
--include $(DEP_FILES)
+ifdef DYNAMIC_GL
+DEFINES += -DMC_DYNAMIC_GL=1
+endif
+ifdef NO_WSTRING
+DEFINES += -DMC_NO_WSTRING
+endif
 
-$(BLD_DIR)/p/%.o: $(PLT_DIR)/%.cpp
+OBJS := $(addprefix build/,$(C_SRCS:.c=.c.o)) $(addprefix build/,$(CXX_SRCS:.cpp=.cpp.o))
+
+ifndef DISABLE_MMD
+DEPFLAGS = -MMD -MP
+endif
+
+all: build/nbcraft
+
+-include $(OBJS:.o=.d)
+
+build/nbcraft: $(OBJS)
+	ln -sf ../game/assets build
+	$(AR) rcs build/nbcraft.a $(OBJS)
+	$(CXX) $(LDFLAGS) build/nbcraft.a $(LIBS) -o $@
+
+build/%.cpp.o: %.cpp $(if $(DISABLE_MMD),$(HEADERS))
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CXX) $(DEFINES) $(INCLUDES) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(BLD_DIR)/r/%.o: $(RKN_DIR)/%.cpp
+build/%.c.o: %.c $(if $(DISABLE_MMD),$(HEADERS))
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
-
-$(BLD_DIR)/z/%.o: $(ZLB_DIR)/%.c
-	@mkdir -p $(dir $@)
-	$(CC) $(ZLIBFLAGS) -c -o $@ $<
-
-$(BLD_DIR)/s/%.o: $(SRC_DIR)/%.cpp
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
-
-program:  $(TARGET)
+	$(CC) $(DEFINES) $(INCLUDES) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 clean:
-	rm -rf $(BLD_DIR)
-	rm -rf minecraftcpp
+	rm -rf build

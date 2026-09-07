@@ -14,9 +14,6 @@
 #include "source/common/Utils.hpp"
 #include "android_native_app_glue.h"
 
-// note: probably won't add AppPlatform_android until it's time
-// to build an Android app
-
 class AppPlatform_android : public AppPlatform
 {
 public:
@@ -26,15 +23,14 @@ public:
 	void buyGame() override;
 	void saveScreenshot(const std::string& fileName, int width, int height) override;
 	int checkLicense() override;
-	void createUserInput() override;
 	std::vector<std::string> getUserInput() override;
 	int getUserInputStatus() override;
 	int getScreenWidth() const override;
 	int getScreenHeight() const override;
 	void showDialog(eDialogType) override;
 	std::string getDateString(int time) override;
-	Texture loadTexture(const std::string& str, bool b) override;
-	//std::vector<std::string>  getOptionStrings() override;
+	void setVSyncEnabled(bool enabled) override;
+	bool isVSyncSwitchable() const override;
 
 	// Also add these to allow proper turning within the game.
 	void recenterMouse() override;
@@ -46,21 +42,22 @@ public:
 	// Also add these to allow proper text input within the game.
 	bool shiftPressed() override;
 	void setShiftPressed(bool b);
-	void showKeyboard(int x, int y, int w, int h) override;
-	void hideKeyboard() override;
-	int getKeyboardUpOffset() override;
+	void showKeyboard(LocalPlayerID playerId, const VirtualKeyboard& keyboard) override;
+	void hideKeyboard(LocalPlayerID playerId) override;
+	unsigned int getKeyboardUpOffset() const override;
 	
-	// Also add these to allow saving options.
-	//void setOptionStrings(const std::vector <std::string>& str) override;
 	bool hasFileSystemAccess() override;	
 
-	SoundSystem* const getSoundSystem() const override;
+	SoundSystem* getSoundSystem() const override;
 	void initSoundSystem() override;
 	bool isTouchscreen() const override;
 
 	void setScreenSize(int width, int height);
 	void initAndroidApp(android_app* ptr);
 	void setExternalStoragePath(const std::string& path);
+
+	AssetFile readAssetFile(const std::string&, bool) const override;
+	std::string getAssetPath(const std::string&) const override;
 
 private:
 	void changeKeyboardVisibility(bool bShown);

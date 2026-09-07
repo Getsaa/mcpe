@@ -7,11 +7,27 @@
  ********************************************************************/
 #include "Animal.hpp"
 #include "world/level/Level.hpp"
+#include "nbt/CompoundTag.hpp"
+#include "world/level/TileSource.hpp"
 
-Animal::Animal(Level* pLevel) : PathfinderMob(pLevel)
+Animal::Animal(TileSource& source) : PathfinderMob(source)
 {
 	field_BB4 = 0;
 	m_age = 0;
+}
+
+void Animal::addAdditionalSaveData(CompoundTag& tag) const
+{
+	Mob::addAdditionalSaveData(tag);
+
+	tag.putInt32("Age", getAge());
+}
+
+void Animal::readAdditionalSaveData(const CompoundTag& tag)
+{
+	Mob::readAdditionalSaveData(tag);
+
+	setAge(tag.getInt32("Age"));
 }
 
 void Animal::aiStep()
@@ -30,11 +46,11 @@ bool Animal::isBaby() const
 	return getAge() < 0;
 }
 
-bool Animal::canSpawn() const
+bool Animal::canSpawn()
 {
 	TilePos pos(m_pos.x, m_hitbox.min.y, m_pos.z);
 
-	if (m_pLevel->getTile(pos.below()) != Tile::grass->m_ID || m_pLevel->getRawBrightness(pos) < 8)
+	if (m_pTileSource->getTile(pos.below()) != Tile::grass->m_ID || m_pTileSource->getRawBrightness(pos) < 8)
 		return false;
 
 	return PathfinderMob::canSpawn();
@@ -54,23 +70,23 @@ int Animal::getAmbientSoundInterval() const
 float Animal::getWalkTargetValue(const TilePos& pos) const
 {
 	// Animals would rather walk on grass.
-	if (m_pLevel->getTile(pos.below()) == Tile::grass->m_ID)
+	if (m_pTileSource->getTile(pos.below()) == Tile::grass->m_ID)
 		return 10.0f;
 
 	// Animals will avoid dark areas.
-	return m_pLevel->getBrightness(pos) - 0.5f;
+	return m_pTileSource->getBrightness(pos) - 0.5f;
 }
 
-bool Animal::hurt(Entity* pCulprit, int damage)
+/*bool Animal::hurt(Entity* pCulprit, int damage)
 {
 	// Run around erratically for three seconds.
-	field_BA4 = 60;
+	m_goCrazyTicks = 60;
 
 	m_pAttackTarget = nullptr;
 	field_BB4 = 0;
 
 	return Mob::hurt(pCulprit, damage);
-}
+}*/
 
 bool Animal::removeWhenFarAway() const
 {

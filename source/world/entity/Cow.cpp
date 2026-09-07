@@ -6,12 +6,34 @@
 	SPDX-License-Identifier: BSD-1-Clause
  ********************************************************************/
 #include "Cow.hpp"
-#include "common/Utils.hpp"
+#include "Player.hpp"
 
-Cow::Cow(Level* pLevel) : Animal(pLevel)
+Cow::Cow(TileSource& source) : Animal(source)
 {
 	m_pDescriptor = &EntityTypeDescriptor::cow;
-	field_C8 = RENDER_COW;
+	m_renderType = RENDER_COW;
 	m_texture = "mob/cow.png";
 	setSize(0.9f, 1.3f);
+}
+
+void Cow::addAdditionalSaveData(CompoundTag& tag) const
+{
+	Animal::addAdditionalSaveData(tag);
+}
+
+void Cow::readAdditionalSaveData(const CompoundTag& tag)
+{
+	Animal::readAdditionalSaveData(tag);
+}
+
+bool Cow::interact(Player* player)
+{
+	ItemStack& selected = player->m_pInventory->getSelected();
+	if (selected.getId() == Item::bucket_empty->m_itemID)
+	{
+		player->m_pInventory->setSelectedItem(Item::milk);
+		return true;
+	}
+		
+	return false;
 }

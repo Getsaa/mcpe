@@ -20,15 +20,18 @@ public:
 	int m_eggTime;
 
 public:
-	Chicken(Level* pLevel);
+	Chicken(TileSource& source);
 
+public:
 	std::string getAmbientSound() const override { return "mob.chicken"; }
 	std::string getDeathSound() const override { return "mob.chickenhurt"; }
 	std::string getHurtSound() const override { return "mob.chickenhurt"; }
-	void dropDeathLoot() override;
 	int getMaxHealth() const override { return 4; }
 	void aiStep() override;
+	void dropDeathLoot() override;
 	void causeFallDamage(float) override { return; }
+	void addAdditionalSaveData(CompoundTag& tag) const override;
+	void readAdditionalSaveData(const CompoundTag& tag) override;
 
-	Entity* getBreedOffspring(Animal* pOther) { return new Chicken(m_pLevel); }
+	Entity* getBreedOffspring(Animal* pOther) { return new Chicken(*m_pTileSource); }
 };

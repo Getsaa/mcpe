@@ -8,50 +8,99 @@
 
 #include "EntityRenderDispatcher.hpp"
 #include "client/app/Minecraft.hpp"
+#include "renderer/ShaderConstants.hpp"
 #include "../ItemInHandRenderer.hpp"
 
-#include "client/model/PigModel.hpp"
-#include "client/model/SheepModel.hpp"
-#include "client/model/CowModel.hpp"
-#include "client/model/ChickenModel.hpp"
-#include "client/model/CreeperModel.hpp"
+#include "HumanoidMobRenderer.hpp"
+#include "TripodCameraRenderer.hpp"
+#include "TntRenderer.hpp"
+#include "ItemRenderer.hpp"
+
+#include "ItemSpriteRenderer.hpp"
+#include "FallingTileRenderer.hpp"
+#include "PigRenderer.hpp"
+#include "SheepRenderer.hpp"
+#include "CowRenderer.hpp"
+#include "ChickenRenderer.hpp"
+#include "CreeperRenderer.hpp"
+#include "SpiderRenderer.hpp"
+#include "ArrowRenderer.hpp"
+#include "RocketRenderer.hpp"
+#include "SquidRenderer.hpp"
+#include "GiantMobRenderer.hpp"
+#include "SlimeRenderer.hpp"
+#include "ItemSpriteRenderer.hpp"
+#include "FireballRenderer.hpp"
+#include "GhastRenderer.hpp"
+#include "FishingHookRenderer.hpp"
+
+#include "client/model/models/PigModel.hpp"
+#include "client/model/models/SheepModel.hpp"
+#include "client/model/models/CowModel.hpp"
+#include "client/model/models/ChickenModel.hpp"
+#include "client/model/models/CreeperModel.hpp"
+#include "client/model/models/SpiderModel.hpp"
+#include "client/model/models/SkeletonModel.hpp"
+#include "client/model/models/ZombieModel.hpp"
+#include "client/model/models/SquidModel.hpp"
+#include "client/model/models/SlimeModel.hpp"
 
 EntityRenderDispatcher* EntityRenderDispatcher::instance;
 Vec3 EntityRenderDispatcher::off;
 
-EntityRenderDispatcher::EntityRenderDispatcher() :
-	m_HumanoidMobRenderer(new HumanoidModel(0.0f, 0.0f), 0.5f),
-	m_PigRenderer(new PigModel(0.0f), /*new PigModel(0.5f),*/ 0.7f),
-	m_SheepRenderer(new SheepModel(false), new SheepModel(true), 0.7f),
-	m_CowRenderer(new CowModel, 0.7f),
-	m_ChickenRenderer(new ChickenModel, 0.3f),
-	m_CreeperRenderer(new CreeperModel, 0.5f)
+EntityRenderDispatcher::EntityRenderDispatcher()
 {
 	m_pItemInHandRenderer = nullptr;
+	m_tileRenderer = new TileRenderer();
 	m_pTextures = nullptr;
 	m_pLevel = nullptr;
 	m_pMinecraft = nullptr;
-	m_pMob = nullptr;
-	m_rot = Vec2::ZERO;
+	m_pCamera = nullptr;
+	m_rot = Rot2::ZERO;
 	m_pOptions = nullptr;
 	m_pFont = nullptr;
 
-	m_HumanoidMobRenderer.init(this);
-	m_PigRenderer.init(this);
-	m_SheepRenderer.init(this);
-	m_CowRenderer.init(this);
-	m_ChickenRenderer.init(this);
-	m_CreeperRenderer.init(this);
-	
-	// TODO
-
-	m_TntRenderer.init(this);
-	m_CameraRenderer.init(this);
-	m_ItemRenderer.init(this);
-	m_RocketRenderer.init(this);
+	_addRenderer(Entity::RENDER_HUMANOID,     new HumanoidMobRenderer(new HumanoidModel, 0.5f));
+	_addRenderer(Entity::RENDER_PIG,          new PigRenderer(        new PigModel(0.0f), /*new PigModel(0.5f),*/ 0.7f));
+	_addRenderer(Entity::RENDER_SHEEP,        new SheepRenderer(      new SheepModel(false), new SheepModel(true), 0.7f));
+	_addRenderer(Entity::RENDER_COW,          new CowRenderer(        new CowModel,      0.7f));
+	_addRenderer(Entity::RENDER_CHICKEN,      new ChickenRenderer(    new ChickenModel,  0.3f));
+	_addRenderer(Entity::RENDER_SQUID,        new SquidRenderer(      new SquidModel,    0.7f));
+	_addRenderer(Entity::RENDER_CREEPER,      new CreeperRenderer(    new CreeperModel,  0.5f));
+	_addRenderer(Entity::RENDER_SPIDER,       new SpiderRenderer());
+	_addRenderer(Entity::RENDER_SKELETON,     new HumanoidMobRenderer(new SkeletonModel, 0.5f));
+	_addRenderer(Entity::RENDER_ZOMBIE,       new HumanoidMobRenderer(new ZombieModel,   0.5f));
+	_addRenderer(Entity::RENDER_GIANT,        new GiantMobRenderer(   new ZombieModel,   0.5f, 6.0f));
+	_addRenderer(Entity::RENDER_SLIME,        new SlimeRenderer(      new SlimeModel(16), new SlimeModel(0), 0.25f));
+	_addRenderer(Entity::RENDER_GHAST,        new GhastRenderer());
+	_addRenderer(Entity::RENDER_ARROW,        new ArrowRenderer());
 #ifdef ENH_ALLOW_SAND_GRAVITY
-	m_FallingTileRenderer.init(this);
+	_addRenderer(Entity::RENDER_FALLING_TILE, new FallingTileRenderer());
 #endif
+	_addRenderer(Entity::RENDER_TNT,          new TntRenderer());
+	_addRenderer(Entity::RENDER_CAMERA,       new TripodCameraRenderer());
+	_addRenderer(Entity::RENDER_ITEM,         new ItemRenderer());
+	_addRenderer(Entity::RENDER_THROWN_EGG,	  new ItemSpriteRenderer(Item::egg->getIcon()));
+	_addRenderer(Entity::RENDER_SNOWBALL,	  new ItemSpriteRenderer(Item::snowBall->getIcon()));
+	_addRenderer(Entity::RENDER_ROCKET,       new RocketRenderer());
+	_addRenderer(Entity::RENDER_FIREBALL,     new FireballRenderer());
+	_addRenderer(Entity::RENDER_FISHING_HOOK, new FishingHookRenderer());
+}
+
+EntityRenderDispatcher::~EntityRenderDispatcher()
+{
+	for (size_t i = 0; i < m_entityRenderers.size(); i++)
+	{
+		delete m_entityRenderers[i];
+	}
+}
+
+void EntityRenderDispatcher::_addRenderer(Entity::RenderType renderType, EntityRenderer* pRenderer)
+{
+	pRenderer->init(this);
+
+	m_entityRenderers.push_back(pRenderer);
+	m_entityRendererMap[renderType] = pRenderer;
 }
 
 float EntityRenderDispatcher::distanceToSqr(const Vec3& pos)
@@ -72,91 +121,60 @@ EntityRenderDispatcher* EntityRenderDispatcher::getInstance()
 	return instance;
 }
 
-EntityRenderer* EntityRenderDispatcher::getRenderer(int renderType)
+EntityRenderer* EntityRenderDispatcher::getRenderer(Entity::RenderType renderType)
 {
-	switch (renderType)
-	{
-		case RENDER_TNT:
-			return &m_TntRenderer;
-		case RENDER_HUMANOID:
-			return &m_HumanoidMobRenderer;
-		case RENDER_ITEM:
-			return &m_ItemRenderer;
-		case RENDER_CAMERA:
-			return &m_CameraRenderer;
-		case RENDER_CHICKEN:
-			return &m_ChickenRenderer;
-		case RENDER_COW:
-			return &m_CowRenderer;
-		case RENDER_PIG:
-			return &m_PigRenderer;
-		case RENDER_SHEEP:
-			return &m_SheepRenderer;
-		case RENDER_CREEPER:
-			return &m_CreeperRenderer;
-		case RENDER_ROCKET:
-			return &m_RocketRenderer;
-#ifdef ENH_ALLOW_SAND_GRAVITY
-		// TODO
-		case RENDER_FALLING_TILE:
-			return &m_FallingTileRenderer;
-#endif
-	}
-
-	return nullptr;
+	return m_entityRendererMap[renderType];
 }
 
-EntityRenderer* EntityRenderDispatcher::getRenderer(Entity* pEnt)
+EntityRenderer* EntityRenderDispatcher::getRenderer(const Entity& entity)
 {
-	int renderType = pEnt->field_C8;
-	if (renderType == RENDER_DYNAMIC)
-		renderType = pEnt->queryEntityRenderer();
+	Entity::RenderType renderType = entity.m_renderType;
+	if (renderType == Entity::RENDER_DYNAMIC)
+		renderType = entity.queryEntityRenderer();
 
 	return getRenderer(renderType);
 }
 
 void EntityRenderDispatcher::onGraphicsReset()
 {
-	m_HumanoidMobRenderer.onGraphicsReset();
+	for (size_t i = 0; i < m_entityRenderers.size(); i++)
+	{
+		m_entityRenderers[i]->onGraphicsReset();
+	}
 }
 
-void EntityRenderDispatcher::prepare(Level* level, Textures* textures, Font* font, Mob* mob, Options* options, float f)
+void EntityRenderDispatcher::prepare(Level* level, Textures* textures, Font* font, const Mob* camera, Options* options, float f)
 {
 	m_pLevel = level;
 	m_pTextures = textures;
-	m_pMob = mob;
+	m_pCamera = camera;
 	m_pFont = font;
 	m_pOptions = options;
-	m_rot = mob->m_rotPrev + (mob->m_rot - mob->m_rotPrev) * f;
-	m_pos = mob->m_posPrev + (mob->m_pos - mob->m_posPrev) * f;
+	m_rot = camera->m_oRot    + (camera->m_rot - camera->m_oRot)    * f;
+	m_pos = camera->m_posPrev + (camera->m_pos - camera->m_posPrev) * f;
 }
 
-void EntityRenderDispatcher::render(Entity* entity, float a)
+void EntityRenderDispatcher::render(const Entity& entity, float a)
 {
-	Vec3 pos = Vec3(entity->m_posPrev + (entity->m_pos - entity->m_posPrev) * a);
-	float yaw = entity->m_rotPrev.x + a * (entity->m_rot.x - entity->m_rotPrev.x);
-
-	float bright = entity->getBrightness(1.0f);
-	glColor4f(bright, bright, bright, 1.0f);
+	Vec3 pos = Vec3(entity.m_posPrev + (entity.m_pos - entity.m_posPrev) * a);
+	float yaw = entity.m_oRot.yaw + a * (entity.m_rot.yaw - entity.m_oRot.yaw);
 
 	render(entity, pos - off, yaw, a);
 }
 
-void EntityRenderDispatcher::render(Entity* entity, const Vec3& pos, float rot, float a)
+void EntityRenderDispatcher::render(const Entity& entity, const Vec3& pos, float rot, float a)
 {
 	EntityRenderer* pRenderer = getRenderer(entity);
-	if (pRenderer)
-	{
-#ifndef ORIGINAL_CODE
-		if (pRenderer == &m_HumanoidMobRenderer)
-			m_HumanoidMobRenderer.m_pHumanoidModel->m_bSneaking = entity->isSneaking();
-		else
-			m_HumanoidMobRenderer.m_pHumanoidModel->m_bSneaking = false;
-#endif
 
-		pRenderer->render(entity, pos.x, pos.y, pos.z, rot, a);
-		pRenderer->postRender(entity, pos, rot, a);
+	if (!pRenderer)
+	{
+		LOG_E("Failed to fetch renderer for entity: %s", entity.getDescriptor().getEntityType().getName().c_str());
+		throw std::bad_cast();
 	}
+
+	pRenderer->preRender(entity, pos, rot, a);
+	pRenderer->render(entity, pos, rot, a);
+	pRenderer->postRender(entity, pos, rot, a);
 }
 
 void EntityRenderDispatcher::setLevel(Level* level)
@@ -167,4 +185,9 @@ void EntityRenderDispatcher::setLevel(Level* level)
 void EntityRenderDispatcher::setMinecraft(Minecraft* mc)
 {
 	m_pMinecraft = mc;
+}
+
+void EntityRenderDispatcher::onAppSuspended()
+{
+	//m_tileRenderer->clearTileCache();
 }

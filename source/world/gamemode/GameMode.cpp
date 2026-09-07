@@ -8,11 +8,12 @@
 
 #include "GameMode.hpp"
 #include "client/app/Minecraft.hpp"
+#include "network/packets/RemoveBlockPacket.hpp"
+#include "world/level/TileSource.hpp"
 
-GameMode::GameMode(Minecraft* pMinecraft, Level& level) :
-	m_pMinecraft(pMinecraft),
-	_level(level),
-	field_8(0)
+GameMode::GameMode(Minecraft* pMinecraft)
+	: m_pMinecraft(pMinecraft)
+	, m_bInstaBuild(false)
 {
 }
 
@@ -24,41 +25,45 @@ void GameMode::initLevel(Level* pLevel)
 {
 }
 
-bool GameMode::startDestroyBlock(Player* player, const TilePos& pos, Facing::Name face)
+bool GameMode::startDestroyBlock(Player& player, const TilePos& pos, Facing::Name face)
 {
 	//if (!player->getCarriedItem()) // && not a bow
 	return destroyBlock(player, pos, face);
 }
 
-bool GameMode::destroyBlock(Player* player, const TilePos& pos, Facing::Name face)
+bool GameMode::destroyBlock(Player& player, const TilePos& pos, Facing::Name face)
 {
-	Tile* pTile = Tile::tiles[_level.getTile(pos)];
-	if (!pTile)
+	TileSource& source = player.getTileSource();
+
+	Tile* oldTile = Tile::tiles[source.getTile(pos)];
+	if (!oldTile)
 		return false;
 
-	m_pMinecraft->m_pParticleEngine->destroyEffect(pos);
+	m_pMinecraft->m_pParticleEngine->destroyEffect(player, pos);
 
-	int tileData = _level.getData(pos);
-	pTile->playerWillDestroy(player, pos, face);
-	bool bChanged = _level.setTile(pos, 0);
-	if (!bChanged)
+	TileData tileData = source.getData(pos);
+
+	oldTile->playerWillDestroy(player, pos, face);
+
+	bool changed = source.setTile(pos, TILE_AIR, TileChange::UPDATE_NEIGHBORS);
+	if (!changed)
 		return false;
 
+	Level& level = player.getLevel();
+	level.playSound(pos + 0.5f, "step." + oldTile->m_pSound->name,
+		(oldTile->m_pSound->volume * 0.5f) + 0.5f, oldTile->m_pSound->pitch * 0.8f);
 
-	_level.playSound(pos + 0.5f, "step." + pTile->m_pSound->m_name,
-		(pTile->m_pSound->volume * 0.5f) + 0.5f, pTile->m_pSound->pitch * 0.8f);
+	if (m_pMinecraft->isOnline() && player.isLocalPlayer())
+		level.m_pRakNetInstance->send(new RemoveBlockPacket(player.m_EntityID, pos));
 
-	pTile->destroy(&_level, pos, tileData);
+	level.sendTileUpdated(pos);
 
-	if (m_pMinecraft->isOnline())
-	{
-		m_pMinecraft->m_pRakNetInstance->send(new RemoveBlockPacket(player->m_EntityID, pos));
-	}
-
+	oldTile->destroy(source, pos, tileData);
+	
 	return true;
 }
 
-bool GameMode::continueDestroyBlock(Player* player, const TilePos& pos, Facing::Name face)
+bool GameMode::continueDestroyBlock(Player& player, const TilePos& pos, Facing::Name face)
 {
 	return false;
 }
@@ -69,32 +74,41 @@ void GameMode::stopDestroyBlock()
 
 void GameMode::tick()
 {
+	// @NOTE: should only be in SurvivalMode & MultiPlayerGameMode, but Minecraft music is awesome
+	m_pMinecraft->m_pSoundEngine->playMusicTick();
 }
 
 void GameMode::render(float f)
 {
 }
 
-float GameMode::getPickRange() const
+float GameMode::getBlockReachDistance() const
 {
-/*
-  if ( *inputMode == 1 )
-	return 5.7;
-  if ( *inputMode == 3 )
-	return 5.6;
-  if ( !player || player->isCreative() )
-	return 12.0;
-  return 5.0;
-*/
-	return 7.5f;
+	// @PARITY
+	/* Logic from Pocket Edition 0.12.1
+	if ( *inputMode == 1 )
+		return 5.7f;
+	if ( *inputMode == 3 )
+		return 5.6f;
+	if ( !player || player->isCreative() )
+		return 12.0f;
+	*/
+
+	// Fallback on Java and Pocket. All GameModes on PE are 5.0f until 0.10.0-0.12.1
+	return 5.0f;
 }
 
-LocalPlayer* GameMode::createPlayer(Level* pLevel)
+float GameMode::getEntityReachDistance() const
 {
-	return new LocalPlayer(m_pMinecraft, pLevel, m_pMinecraft->m_pUser, pLevel->getDefaultGameType(), _level.m_pDimension->field_50);
+	return 5.0f;
 }
 
-void GameMode::initPlayer(Player* pPlayer)
+LocalPlayer* GameMode::createPlayer(Level& level)
+{
+	return new LocalPlayer(m_pMinecraft, level, m_pMinecraft->m_pUser, level.getDefaultGameType(), level.getDimension(DIMENSION_OVERWORLD)->getId());
+}
+
+void GameMode::initPlayer(Player& pPlayer)
 {
 }
 
@@ -107,44 +121,84 @@ bool GameMode::canHurtPlayer()
 	return false;
 }
 
-void GameMode::interact(Player* player, Entity* entity)
+void GameMode::interact(Player& player, Entity& entity)
 {
-	player->interact(entity);
+	player.interact(entity);
 }
 
-void GameMode::attack(Player* player, Entity* entity)
+void GameMode::attack(Player& player, Entity& entity)
 {
-	player->attack(entity);
+	player.attack(entity);
 }
 
-int GameMode::handleInventoryMouseClick(int a, int b, int c, Player* player)
+ItemStack GameMode::handleInventoryMouseClick(int containerId, Container::SlotID slotId, MouseButtonType button, bool quick, Player* player)
 {
-	return 0;
+	return player->m_pContainerMenu->clicked(slotId, button, quick, player);
 }
 
-void GameMode::handleCloseInventory(int a, Player* player)
+void GameMode::handleCloseInventory(int a, Player& player)
 {
+	player.m_pContainerMenu->removed(player);
+	if (player.m_pContainerMenu != player.m_pInventoryMenu)
+	{
+		delete player.m_pContainerMenu;
+		player.m_pContainerMenu = player.m_pInventoryMenu;
+	}
 }
 
-bool GameMode::useItem(Player* player, Level* level, ItemInstance* instance)
+bool GameMode::useItem(Player& player, ItemStack& item)
 {
-	int oldCount = instance->m_count;
+	Level& level = player.getLevel();
+	bool result = item.use(player);
 
-	if (instance == instance->use(level, player))
-		return instance->m_count != oldCount;
+	if (level.m_bIsClientSide)
+	{
+		level.m_pRakNetInstance->send(new UseItemPacket(TilePos::ZERO, 255, player.m_EntityID, item));
+	}
 
-	return true;
+	return result;
 }
 
-bool GameMode::useItemOn(Player* player, Level* level, ItemInstance* instance, const TilePos& pos, Facing::Name face)
+bool GameMode::useItemOn(Player& player, ItemStack& item, const TilePos& pos, Facing::Name face)
 {
-	TileID tile = level->getTile(pos);
-	if (tile > 0 && Tile::tiles[tile]->use(level, pos, player))
-		return true;
+	Level& level = player.getLevel();
 
-	if (instance)
-		return instance->useOn(player, level, pos, face);
+	// Sending this packet regardless is intentional. PE does this, Java does this.
+	if (level.m_bIsClientSide)
+	{
+		level.m_pRakNetInstance->send(new UseItemPacket(pos, face, player.m_EntityID, item));
+	}
 
-	return false;
+	TileSource& source = player.getTileSource();
+
+	TileID tile = source.getTile(pos);
+	if (tile == Tile::invisible_bedrock->m_ID)
+		return false;
+
+	bool success = false;
+
+	if (tile > 0 && Tile::tiles[tile]->use(pos, player))
+	{
+		success = true;
+	}
+	else if (!item.isEmpty())
+	{
+		success = item.useOn(player, pos, face);
+	}
+
+	return success;
 }
 
+void GameMode::releaseUsingItem(Player* player)
+{
+	Level& level = player->getLevel();
+
+#if NETWORK_PROTOCOL_VERSION >= 6
+	if (level.m_bIsClientSide)
+	{
+		level.m_pRakNetInstance->send(new PlayerActionPacket(player->m_EntityID, PlayerActionPacket::STOP_USING_ITEM));
+	}
+#endif
+
+	player->releaseUsingItem();
+}

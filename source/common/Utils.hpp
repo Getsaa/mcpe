@@ -13,7 +13,7 @@
 #include <stdint.h>
 #include <stdarg.h>
 #include <assert.h>
-#include <limits>
+#include "compat/Limits.hpp"
 #ifndef _USE_MATH_DEFINES
 #define _USE_MATH_DEFINES
 #endif
@@ -26,29 +26,38 @@
 #include <string>
 #include <sstream>
 
-#include "compat/LegacyCPPCompatibility.hpp"
+#include "compat/LegacyCPP.hpp"
+#include "compat/PlatformDefinitions.h"
 
 #ifdef _MSC_VER
 #pragma warning (disable : 4068)
 #endif
 
-#if defined(_WIN32)
+#ifdef _WIN32
 
-// Do we even need all this WinSock stuff anymore?
-#ifndef _XBOX // assume we're on a normal Windows device
+#ifdef __CRTDLL__
+
+#define gmtime_s __nbc_gmtime_s
+errno_t gmtime_s(struct tm* out, const time_t* timer);
+
+#endif // __CRTDLL__
+
+#if MC_PLATFORM_WINPC
+
 #define WIN32_LEAN_AND_MEAN
-#include <WinSock2.h>
-#include <Windows.h>
-#include <WS2tcpip.h>
-#include <direct.h>
-#include <io.h>
+#ifndef NOMINMAX
+#define NOMINMAX /* don't define min() and max(). */
+#endif
+#include <windows.h>
 
 #elif defined(_XBOX)
 
 #include <xtl.h>
-#include <winsockx.h>
 
 #endif
+
+#include <io.h> // for _access
+#include <direct.h> // for _mkdir
 
 // XPL means "Cross PLatform"
 #define XPL_ACCESS _access
@@ -76,6 +85,10 @@ DIR* opendir(const char* name);
 dirent* readdir(DIR* dir);
 void closedir(DIR* dir);
 
+#ifdef _WIN32
+#define _CRT_INTERNAL_NONSTDC_NAMES 1 // gives us the stat struct we need
+#endif
+
 #include <sys/stat.h>
 
 #ifndef S_ISDIR
@@ -101,47 +114,17 @@ void closedir(DIR* dir);
 
 #endif
 
-#include "../../compat/KeyCodes.hpp"
-#include "Logger.hpp"
-
-// options:
-#include "../../GameMods.hpp"
-
 // don't know where to declare these:
 
-#ifndef MOD_USE_BIGGER_SCREEN_SIZE
-#define C_DEFAULT_SCREEN_WIDTH  (854)
-#define C_DEFAULT_SCREEN_HEIGHT (480)
-#else
-#define C_DEFAULT_SCREEN_WIDTH  (1280)
-#define C_DEFAULT_SCREEN_HEIGHT (720)
-#endif
-
 #define C_MAX_TILES (256)
-
-#define C_DEFAULT_PORT (19132)
-#define C_MAX_CONNECTIONS (4) // pitiful
 
 constexpr int C_MIN_X = -32000000, C_MAX_X = 32000000;
 constexpr int C_MIN_Z = -32000000, C_MAX_Z = 32000000;
 constexpr int C_MIN_Y = 0, C_MAX_Y = 128;
 
-const char* GetTerrainName();
-const char* GetItemsName();
-const char* GetGUIBlocksName();
-
-#ifdef ORIGINAL_CODE
-#define C_TERRAIN_NAME "terrain.png"
-#define C_ITEMS_NAME   "gui/items.png"
-#define C_BLOCKS_NAME  "gui/gui_blocks.png"
-#else
-#define C_TERRAIN_NAME GetTerrainName()
-#define C_ITEMS_NAME   "gui/items.png"
-#define C_BLOCKS_NAME  "gui/gui_blocks.png"
-#endif
-
 #define C_MAX_CHUNKS_X (16)
 #define C_MAX_CHUNKS_Z (16)
+#define C_MAX_CHUNKS (C_MAX_CHUNKS_X * C_MAX_CHUNKS_Z)
 
 // 9 chunks around a player things will tick
 #define C_TICK_DISTANCE_CHKS (9)
@@ -180,7 +163,7 @@ enum eTileID
 	TILE_RAIL_ACTIVATOR,
 	TILE_PISTON_STICKY,
 	TILE_COBWEB,
-	TILE_TALLGRASS,
+	TILE_TALL_GRASS,
 	TILE_DEAD_BUSH,
 	TILE_PISTON,
 	TILE_PISTON_HEAD,
@@ -256,7 +239,7 @@ enum eTileID
 	TILE_CLOTH_30,
 	TILE_CLOTH_40,
 	TILE_CLOTH_50,
-	TILE_CLOTH_60,
+	TILE_FENCE_GATE, //TILE_CLOTH_60,
 	TILE_CLOTH_70,
 	TILE_CLOTH_01,
 	TILE_CLOTH_11,
@@ -269,6 +252,7 @@ enum eTileID
 	TILE_INFO_UPDATEGAME1 = 248,
 	TILE_INFO_UPDATEGAME2 = 249,
 	TILE_LEAVES_CARRIED = 254,
+	TILE_INFO_RESERVED6,
 
 	TILE_OBSIDIAN_CRYING = 200, // custom stuff - ID of 200
 	TILE_ROCKET_LAUNCHER,
@@ -375,12 +359,16 @@ enum eTileID
 	ITEM_BED,
 	ITEM_DIODE,
 	ITEM_COOKIE,
-	ITEM_RECORD_01,
-	ITEM_RECORD_02,
+	ITEM_MAP,
+	ITEM_SHEARS,
+	ITEM_SPAWN_EGG = 383,
+	ITEM_RECORD_01 = 2256,
+	ITEM_RECORD_02 = 2257,
 	ITEM_CAMERA = 456,
 
 	// Custom items
 	ITEM_ROCKET = 470,
+	ITEM_QUIVER = 484
 };
 
 enum // Textures
@@ -415,7 +403,7 @@ enum // Textures
 	TEXTURE_CHEST_ONE_FRONT,
 	TEXTURE_MUSHROOM_RED,
 	TEXTURE_MUSHROOM_BROWN,
-	TEXTURE_NONE30,
+	TEXTURE_OBSIDIAN_CRYING,
 	TEXTURE_FIRE1,
 	TEXTURE_ORE_GOLD,
 	TEXTURE_ORE_IRON,
@@ -423,8 +411,8 @@ enum // Textures
 	TEXTURE_BOOKSHELF,
 	TEXTURE_MOSSY_STONE,
 	TEXTURE_OBSIDIAN,
-	TEXTURE_OBSIDIAN_CRYING,
-	TEXTURE_NONE39,
+	TEXTURE_GRASS_SIDE_OVERLAY,
+	TEXTURE_TALL_GRASS,
 	TEXTURE_NONE40,
 	TEXTURE_CHEST_TWO_FRONT_LEFT,
 	TEXTURE_CHEST_TWO_FRONT_RIGHT,
@@ -440,7 +428,7 @@ enum // Textures
 	TEXTURE_LEAVES_TRANSPARENT,
 	TEXTURE_LEAVES_OPAQUE,
 	TEXTURE_NONE54,
-	TEXTURE_NONE55,
+	TEXTURE_DEAD_BUSH,
 	TEXTURE_NONE56,
 	TEXTURE_CHEST_TWO_BACK_LEFT,
 	TEXTURE_CHEST_TWO_BACK_RIGHT,
@@ -469,7 +457,7 @@ enum // Textures
 	TEXTURE_DOOR_TOP,
 	TEXTURE_DOOR_IRON_TOP,
 	TEXTURE_LADDER,
-	TEXTURE_NONE84,
+	TEXTURE_TRAPDOOR,
 	TEXTURE_NONE85,
 	TEXTURE_FARMLAND,
 	TEXTURE_FARMLAND_DRY,
@@ -491,8 +479,8 @@ enum // Textures
 	TEXTURE_BLOODSTONE,
 	TEXTURE_SOULSAND,
 	TEXTURE_GLOWSTONE,
-	TEXTURE_NONE106,
-	TEXTURE_NONE107,
+	TEXTURE_STICKY_PISTON,
+	TEXTURE_PISTON,
 	TEXTURE_NONE108,
 	TEXTURE_NONE109,
 	TEXTURE_NONE110,
@@ -513,9 +501,14 @@ enum // Textures
 	TEXTURE_NONE125,
 	TEXTURE_NONE126,
 	TEXTURE_NONE127,
+	TEXTURE_RAIL,
 
 	TEXTURE_LAPIS = 144,
 	TEXTURE_ORE_LAPIS = 160,
+	TEXTURE_POWERED_RAIL = 163,
+	TEXTURE_REDSTONE_DUST,
+	TEXTURE_REDSTONE_DUST_LINE,
+	TEXTURE_DETECTOR_RAIL = 195,
 
 	TEXTURE_SANDSTONE_TOP = 176,
 	TEXTURE_SANDSTONE_SIDE = 192,
@@ -524,10 +517,13 @@ enum // Textures
 
 	TEXTURE_LAVA = 237,
 
+	// If the "more items" texture was to be utilized
+	//TEXTURE_SLOT_MORE = 222,
+
 	TEXTURE_INFO_UPDATEGAME1 = 252,
 	TEXTURE_INFO_UPDATEGAME2 = 253,
 
-	TEXTURE_LAVA_PLACEHOLDER = 255,
+	TEXTURE_LAVA_PLACEHOLDER = 255
 };
 
 enum eRenderShape
@@ -538,40 +534,31 @@ enum eRenderShape
 	SHAPE_TORCH,
 	SHAPE_FIRE,
 	SHAPE_WATER,
-	SHAPE_UNK5,
-	SHAPE_UNK6,
+	SHAPE_DUST,
+	SHAPE_CROPS,
 	SHAPE_DOOR,
 	SHAPE_LADDER,
-	SHAPE_UNK9,
+	SHAPE_RAIL,
 	SHAPE_STAIRS,
-};
-
-enum eRenderLayer
-{
-	LAYER_OPAQUE,
-	LAYER_ALPHA
+	SHAPE_FENCE,
+	SHAPE_FENCE_GATE,
+	SHAPE_LEVER,
+	SHAPE_CACTUS,
+	SHAPE_BED,
+	SHAPE_DIODE,
+	SHAPE_PISTON,
+	SHAPE_PISTON_HEAD,
+	SHAPE_RANDOM_CROSS
 };
 
 typedef uint8_t TileID;
-// TODO: "FullTile" struct with TileID and auxvalue?
-
-/*struct Pos
-{
-	int x, y, z;
-	Pos()
-	{
-		x = 0;
-		y = 0;
-		z = 0;
-	}
-	Pos(int _x, int _y, int _z) : x(_x), y(_y), z(_z) {}
-};*/
+// @TODO: Rename this to "TileTypeId"
+// Rename "Tile" to "TileType"
+// Rename "FullTile" to "Tile"
+typedef uint8_t TileData;
 
 #define SAFE_DELETE(ptr) do { if (ptr) delete ptr; } while (0)
 #define SAFE_DELETE_ARRAY(ptr) do { if (ptr) delete[] ptr; } while (0)
-
-#define SSTR( x ) static_cast< const std::ostringstream & >( \
-		( std::ostringstream() << std::dec << x ) ).str()
 
 // functions from Mojang
 time_t getEpochTimeS();
@@ -581,25 +568,18 @@ int getTimeMs();
 
 void sleepMs(int ms);
 
+int32_t getUniqueSeed();
+
+#ifdef _WIN32
+void toDosPath(char* path);
+#endif
+
 bool createFolderIfNotExists(const char* pDir);
 bool DeleteDirectory(const std::string& name, bool unused);
+bool isRegularFile(const char *path);
+bool isDirectory(const char *path);
 
 // compress and decompress stuff with zlib: ( you must SAFE_DELETE_ARRAY what it returns )
 uint8_t* ZlibInflateToMemory(uint8_t* pInput, size_t compressedSize, size_t decompressedSize);
 uint8_t* ZlibDeflateToMemory(uint8_t* pInput, size_t sizeBytes, size_t *compressedSizeOut);
 uint8_t* ZlibDeflateToMemoryLvl(uint8_t* pInput, size_t sizeBytes, size_t* compressedSizeOut, int level);
-
-// things that we added:
-
-#ifdef _WIN32
-
-HINSTANCE GetInstance();
-HWND GetHWND();
-void CenterWindow(HWND hWnd);
-void EnableOpenGL(HWND hwnd, HDC*, HGLRC*);
-void DisableOpenGL(HWND, HDC, HGLRC);
-
-void SetInstance(HINSTANCE hinst);
-void SetHWND(HWND hwnd);
-
-#endif

@@ -15,13 +15,48 @@ CreeperRenderer::~CreeperRenderer()
 {
 }
 
-int CreeperRenderer::getOverlayColor(Mob* pMob, float a, float b)
+Color CreeperRenderer::getOverlayColor(const Entity& entity, float a) const
 {
-	// TODO
-	return 0;
+	const Creeper& creeper = (const Creeper&)entity;
+
+	float step = creeper.getSwelling(a);
+
+	if (static_cast<int>(step * 10.0f) % 2 == 0)
+	{
+		return EntityShaderManager::getOverlayColor(entity, a);
+	}
+
+	int _a = step * 0.2f * 255.0f;
+
+	if (_a < 0) { _a = 0; }
+
+	if (_a > 255) { _a = 255; }
+
+	return Color(255, 255, 255, _a);
 }
 
-void CreeperRenderer::scale(Mob* pMob, float f)
+void CreeperRenderer::scale(const Mob& mob, Matrix& matrix, float a)
 {
-	// TODO
+	const Creeper& creeper = (const Creeper&)mob;
+
+	float g = creeper.getSwelling(a);
+	float wobble = 1.0f + Mth::sin(g * 100.0f) * g * 0.01f;
+
+	if (g < 0.0f) 
+	{
+		g = 0.0f;
+	}
+
+	if (g > 1.0f) 
+	{
+		g = 1.0f;
+	}
+
+	g *= g;
+	g *= g;
+
+	float s = (1.0f + g * 0.4f) * wobble;
+	float hs = (1.0f + g * 0.1f) / wobble;
+
+	matrix.scale(Vec3(s, hs, s));
 }

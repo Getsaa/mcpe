@@ -5,6 +5,7 @@
 #include <sstream>
 
 class AppPlatform;
+class TextureData;
 
 enum ePatchType
 {
@@ -12,13 +13,13 @@ enum ePatchType
 	TYPE_TERRAIN,
 	TYPE_ITEMS,
 	TYPE_FRAME,
-	TYPE_FEATURE,
+	TYPE_FEATURE
 };
 
 enum ePatchOption
 {
 	PO_NONE,
-	PO_GRASS_TINT,
+	PO_GRASS_TINT
 };
 
 struct PatchData
@@ -73,14 +74,13 @@ public:
 
 	void LoadPatchData(const std::string& patchData);
 
-	void PatchTextures(AppPlatform*, ePatchType);
+	void PatchTextures(TextureData& texture, ePatchType patchType);
 	void PatchTiles();
 
 	// Features
 	bool IsGrassTinted();
 	int  GetMetalSideYOffset();
 	bool IsGlassSemiTransparent();
-	bool IsGrassSidesTinted();
 
 private:
 	void ReadBool(std::istream& is, bool& b);
@@ -90,7 +90,6 @@ private:
 	bool m_bGrassTinted;
 	bool m_bGlassSemiTransparent;
 	int m_nMetalSideYOffset;
-	bool m_bGrassSidesTinted;
 	std::vector<PatchData> m_patchData;
 };
 

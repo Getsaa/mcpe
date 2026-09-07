@@ -12,16 +12,16 @@
 class Animal : public PathfinderMob
 {
 public:
-	Animal(Level* pLevel);
-	// TODO: void addAdditonalSaveData(CompoundTag*) override;
-	// TODO: void readAdditonalSaveData(CompoundTag*) override;
+	Animal(TileSource& source);
+	void addAdditionalSaveData(CompoundTag& tag) const override;
+	void readAdditionalSaveData(const CompoundTag& tag) override;
 	void aiStep() override;
 	bool isBaby() const override;
-	bool canSpawn() const override;
+	bool canSpawn() override;
 	Entity* findAttackTarget() override;
 	int getAmbientSoundInterval() const override;
 	float getWalkTargetValue(const TilePos& pos) const override;
-	bool hurt(Entity* pCulprit, int damage) override;
+	//bool hurt(Entity* pCulprit, int damage) override;
 	bool removeWhenFarAway() const override;
 
 	int getAge() const;

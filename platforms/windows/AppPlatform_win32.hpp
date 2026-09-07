@@ -8,14 +8,13 @@
 
 #pragma once
 
-#include "thirdparty/GL/GL.hpp"
 #include "client/app/AppPlatform.hpp"
 
 #include "client/player/input/Mouse.hpp"
 #include "client/player/input/Keyboard.hpp"
-#include "common/Utils.hpp"
+#include "platforms/input/xinput/GameControllerHandler_xinput.hpp"
 #include "LoggerWin32.hpp"
-#include "SoundSystemDS.hpp"
+#include "CustomSoundSystem.hpp"
 
 class AppPlatform_win32 : public AppPlatform
 {
@@ -23,6 +22,10 @@ public:
 	AppPlatform_win32();
 	~AppPlatform_win32();
 
+protected:
+	HWND _getHWND() const { return (HWND)m_hWnd; }
+
+public:
 	void initSoundSystem() override;
 
 	void buyGame() override;
@@ -34,12 +37,12 @@ public:
 	int getScreenWidth() const override { return m_ScreenWidth; }
 	int getScreenHeight() const override { return m_ScreenHeight; }
 	void showDialog(eDialogType) override;
-	std::string getDateString(int time) override;
-	Texture loadTexture(const std::string& str, bool bIsRequired) override;
 	bool doesTextureExist(const std::string& path) const override;
 
 	// From v0.1.1. Also add these to determine touch screen use within the game.
 	bool isTouchscreen() const override;
+	bool hasGamepad() const override;
+	GameControllerHandler* getGameControllerHandler() override;
 
 	// Also add these to allow proper turning within the game.
 	void recenterMouse() override;
@@ -48,42 +51,71 @@ public:
 	void clearDiff() override;
 	void updateFocused(bool focused) override;
 
+	std::string getClipboardText() override;
+
 	// Also add these to allow proper text input within the game.
+	bool controlPressed() override { return m_bControlPressed; }
+	void setControlPressed(bool b) { m_bControlPressed = b; }
 	bool shiftPressed() override { return m_bShiftPressed; }
 	void setShiftPressed(bool b) { m_bShiftPressed = b; }
 
 	bool hasFileSystemAccess() override;
 
 	// Also add this to allow dynamic texture patching.
-	std::string getPatchData() override;
+	AssetFile readAssetFile(const std::string&, bool) const override;
 
 	void setScreenSize(int width, int height);
-	const char* const getWindowTitle() const { return m_WindowTitle; }
-	SoundSystem* const getSoundSystem() const override { return m_pSoundSystem; }
+	const char* getWindowTitle() const { return m_WindowTitle; }
+	SoundSystem* getSoundSystem() const override { return m_pSoundSystem; }
+
+	HWND createWindow(HINSTANCE hInstance, WNDPROC wndProc, LPVOID lpParam, WORD iconId);
+	void initializeWindow(HWND hWnd, int nCmdShow);
+	void destroyWindow(HWND hWnd);
+	void centerWindow(HWND hWnd);
+	void enableGraphics(HWND hWnd);
+	void disableGraphics(HWND hWnd);
+	void destroyWindow() { destroyWindow(_getHWND()); }
+	void centerWindow() { centerWindow(_getHWND()); }
+	void enableGraphics() { enableGraphics(_getHWND()); }
+	void disableGraphics() { disableGraphics(_getHWND()); }
+	bool initGraphics(int width, int height);
+	void createWindowSizeDependentResources(const Vec2& logicalSize, const Vec2& compositionScale);
+	void swapBuffers();
+	void setVSyncEnabled(bool enabled) override;
+	bool isVSyncSwitchable() const override;
 
 	static MouseButtonType GetMouseButtonType(UINT iMsg);
 	static bool GetMouseButtonState(UINT iMsg, WPARAM wParam);
 	static Keyboard::KeyState GetKeyState(UINT iMsg);
 
 private:
+	HICON m_cursor;
+
+#if MCE_GFX_API_OGL
+	// OpenGL
+	HDC m_hDC; // device context
+	HGLRC m_hRC; // render context
+#endif
+
 	const char* m_WindowTitle;
 	int m_ScreenWidth;
 	int m_ScreenHeight;
 
 	std::vector<std::string> m_UserInput;
 	int m_UserInputStatus;
-
 	eDialogType m_DialogType;
 
+	bool m_bHasGraphics;
 	bool m_bIsFocused;
 	bool m_bGrabbedMouse;
 	bool m_bActuallyGrabbedMouse;
 	bool m_bWasUnfocused;
+	bool m_bControlPressed;
 	bool m_bShiftPressed;
 
 	int m_MouseDiffX, m_MouseDiffY;
 
-	LoggerWin32 *m_pLogger;
-	SoundSystemDS* m_pSoundSystem;
+	GameControllerHandler_xinput m_gameControllerHandler;
+	SOUND_SYSTEM* m_pSoundSystem;
 };
 

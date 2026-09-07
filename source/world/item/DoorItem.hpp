@@ -14,7 +14,8 @@ class DoorItem : public Item
 public:
 	DoorItem(int id, Material* pMtl);
 
-	virtual bool useOn(ItemInstance*, Player*, Level*, const TilePos& pos, Facing::Name face);
+public:
+	bool useOn(ItemStack&, Player&, const TilePos& pos, Facing::Name face) const override;
 
 public:
 	Material* m_pMaterial;

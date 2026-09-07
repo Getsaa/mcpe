@@ -9,25 +9,27 @@
 #pragma once
 
 #include "EntityRenderer.hpp"
+#include "client/model/models/Model.hpp"
 
 class MobRenderer : public EntityRenderer
 {
 public:
 	MobRenderer(Model*, float);
+    virtual ~MobRenderer();
 	void setArmor(Model*);
 
-	virtual void render(Entity*, float, float, float, float, float) override;
-	virtual int prepareArmor(Mob*, int, float);
-	virtual void setupPosition(Entity*, float, float, float);
-	virtual void setupRotations(Entity*, float, float, float);
-	virtual float getAttackAnim(Mob*, float);
-	virtual float getBob(Mob*, float);
-	virtual float getFlipDegrees(Mob*);
-	virtual int getOverlayColor(Mob*, float, float);
-	virtual void scale(Mob*, float);
-	virtual void renderName(Mob*, float, float, float);
-	virtual void renderNameTag(Mob*, const std::string&, float, float, float, int);
-	virtual void additionalRendering(Mob*, float);
+	void render(const Entity& entity, const Vec3& pos, float rot, float a) override;
+	void onGraphicsReset() override;
+	virtual int prepareArmor(const Mob& mob, int, float);
+	virtual void setupPosition(const Entity& entity, const Vec3& pos, Matrix& matrix);
+	virtual void setupRotations(const Entity& entity, float bob, float bodyRot, Matrix& matrix, float a);
+	virtual void scale(const Mob& mob, Matrix& matrix, float a);
+	virtual float getAttackAnim(const Mob& mob, float);
+	virtual float getBob(const Mob& mob, float f);
+	virtual float getFlipDegrees(const Mob& mob);
+	virtual void renderName(const Mob& mob, const Vec3& pos);
+	virtual void renderNameTag(const Mob& mob, const std::string&, const Vec3& pos, int, const Color& outlineColor = Color::BLACK);
+	virtual void additionalRendering(const Mob& mob, float);
 
 public:
 	Model* m_pModel;

@@ -8,21 +8,44 @@
 
 #pragma once
 
-#include "world/level/Region.hpp"
-#include "client/renderer/Chunk.hpp"
-#include "client/renderer/Tesselator.hpp"
+#include "client/renderer/renderer/Tesselator.hpp"
+#include "world/tile/Tile.hpp"
+
+class TileSource;
 
 class TileRenderer
 {
+protected:
+	class Materials
+	{
+	public:
+		mce::MaterialPtr ui_item;
+
+		Materials();
+	};
+
+public:
+	enum LightingPreset
+	{
+		LIGHTING_PRESET_JAVA,
+		LIGHTING_PRESET_CONSOLE,
+		LIGHTING_PRESETS_COUNT
+	};
+
 private:
 	void _init();
 public:
-	TileRenderer();
-	TileRenderer(LevelSource*);
-	float getWaterHeight(const TilePos& pos, const Material*);
-	void renderTile(Tile*, int data, float bright = 1.0f, bool preshade = false);
+	TileRenderer(Tesselator& tessellator = Tesselator::instance, TileSource* tileSource = nullptr);
 
-	// TODO
+private:
+	void _tex1(const Vec2& uv);
+	Vec2 getLightColor(const Tile* tile, const TilePos& pos);
+	Color _getTileColor(const TilePos& pos, Tile* tile);
+
+public:
+	float getWaterHeight(const TilePos& pos, const Material*);
+	void renderTile(const FullTile& tile, const mce::MaterialPtr& material, float bright, bool preshade = false);
+	void renderTile(const FullTile& tile, const mce::MaterialPtr& material = mce::MaterialPtr::NONE, const Color& color = Color::WHITE, bool preshade = false);
 
 	bool tesselateInWorld(Tile*, const TilePos& pos);
 	bool tesselateInWorldNoCulling(Tile*, const TilePos& pos);
@@ -32,41 +55,45 @@ public:
 	void renderWest(Tile*, const Vec3& pos, int texture);
 	void renderSouth(Tile*, const Vec3& pos, int texture);
 	void renderNorth(Tile*, const Vec3& pos, int texture);
-	void renderFaceDown(Tile*, const Vec3& pos, int texture);
 	void renderFaceUp(Tile*, const Vec3& pos, int texture);
-	void tesselateCrossTexture(Tile* tile, int data, const Vec3& pos);
+	void renderFaceDown(Tile*, const Vec3& pos, int texture);
+	void tesselateCrossTexture(const FullTile& tile, const Vec3& pos, bool simple = false);
+	void tesselateRowTexture(Tile* tile, int data, const Vec3& pos);
 	void tesselateTorch(Tile*, const Vec3& pos, float a, float b);
 	
-	bool tesselateBlockInWorldWithAmbienceOcclusion(Tile*, const TilePos& pos, float r, float g, float b);
+	bool tesselateBlockInWorldWithAmbienceOcclusionV2(Tile*, const TilePos& pos, float r, float g, float b);
 	bool tesselateBlockInWorld(Tile*, const TilePos& pos, float r, float g, float b);
 	bool tesselateBlockInWorld(Tile*, const TilePos& pos);
 	bool tesselateCrossInWorld(Tile*, const TilePos& pos);
+	bool tesselateRowInWorld(Tile*, const TilePos& pos);
 	bool tesselateWaterInWorld(Tile*, const TilePos& pos);
 	bool tesselateStairsInWorld(Tile*, const TilePos& pos);
+	bool tesselateFenceInWorld(Tile*, const TilePos& pos);
+	bool tesselateFenceGateInWorld(Tile*, const TilePos& pos);
 	bool tesselateLadderInWorld(Tile*, const TilePos& pos);
 	bool tesselateTorchInWorld(Tile*, const TilePos& pos);
+	bool tesselateDiodeInWorld(Tile*, const TilePos& pos);
+	bool tesselateLeverInWorld(Tile*, const TilePos& pos);
 	bool tesselateDoorInWorld(Tile*, const TilePos& pos);
 #ifndef ORIGINAL_CODE
 	bool tesselateFireInWorld(Tile*, const TilePos& pos);
 #endif
-#ifdef ENH_USE_OWN_AO
-	bool tesselateBlockInWorldWithAmbienceOcclusionV2(Tile*, const TilePos& pos, float r, float g, float b);
-#endif
+	bool tesselateDustInWorld(Tile*, const TilePos& pos);
 
-	int getTileColor(Tile*, const TilePos& pos);
+	void setLightingPreset(LightingPreset preset) { m_lightingPreset = preset; }
 	bool useAmbientOcclusion() const;
 
+public:
 	static bool canRender(int renderShape);
 
-	static bool m_bFancyGrass;
-	static bool m_bBiomeColors;
-
 private:
-	LevelSource* m_pLevelSource;
-	int m_textureOverride;
-	bool field_8;
-	bool m_bDisableCulling;
-	bool m_bAmbientOcclusion;
+	TileSource* m_pTileSource;
+	int m_fixedTexture;
+	bool m_bXFlipTexture;
+	bool m_bNoCulling;
+	bool m_bRenderingGui;
+	bool m_ambientOcclusion;
+	LightingPreset m_lightingPreset;
 	float field_C;
 	float field_10;
 	float field_14;
@@ -103,6 +130,7 @@ private:
 	float m_vtxGreen[4];
 	//blue
 	float m_vtxBlue[4];
+	Vec2 m_vtxLightTex[4];
 
 	bool field_AC;
 	bool field_AD;
@@ -116,5 +144,6 @@ private:
 	bool field_B5;
 	bool field_B6;
 	bool field_B7;
+	Materials m_materials;
+	Tesselator& m_tessellator;
 };
-

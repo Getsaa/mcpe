@@ -1,3 +1,4 @@
+#include "Textures.hpp"
 /********************************************************************
 	Minecraft: Pocket Edition - Decompilation Project
 	Copyright (C) 2023 iProgramInCpp
@@ -7,113 +8,164 @@
  ********************************************************************/
 
 #include "Textures.hpp"
+#include "common/Util.hpp"
 #include "common/Utils.hpp"
+#include "client/resources/Resource.hpp"
+#include "renderer/RenderContextImmediate.hpp"
+#include "ScreenRenderer.hpp"
+
+#define MIP_TAG "_mip"
+#define MIP_TAG_SIZE 4
 
 bool Textures::MIPMAP = false;
 
-int Textures::loadTexture(const std::string& name, bool bIsRequired)
+TextureData* Textures::loadTexture(const std::string& name, bool bIsRequired)
 {
-	std::map<std::string, GLuint>::iterator i = m_textures.find(name);
-	if (i != m_textures.end())
-		return i->second;
+	assert(m_textures.find(name) == m_textures.end());
 
-	Texture t = m_pPlatform->loadTexture(name, bIsRequired);
+	TextureData t = Resource::loadTexture(name);
 
-	if (!t.m_pixels && bIsRequired) {
-		t.m_hasAlpha = 1;
-		t.field_D = 0;
-		t.m_width = 2;
-		t.m_height = 2;
-		t.m_pixels = new uint32_t[4];
-		t.m_pixels[0] = 0xfff800f8;
-		t.m_pixels[1] = 0xff000000;
-		t.m_pixels[3] = 0xfff800f8;
-		t.m_pixels[2] = 0xff000000;
+	if (t.isEmpty())
+	{
+		if (bIsRequired)
+		{
+			t.m_imageData.m_colorSpace = COLOR_SPACE_RGBA;
+			t.m_imageData.m_width = 2;
+			t.m_imageData.m_height = 2;
+			uint32_t* placeholder = (uint32_t *)malloc(sizeof(uint32_t) * 4);
+			if (!placeholder)
+				throw std::bad_alloc();
+#if MC_ENDIANNESS_BIG
+			placeholder[0] = 0xf800f8ff;
+			placeholder[1] = 0x000000ff;
+			placeholder[3] = 0xf800f8ff;
+			placeholder[2] = 0x000000ff;
+#else // MC_ENDIANNESS_LITTLE
+			placeholder[0] = 0xfff800f8;
+			placeholder[1] = 0xff000000;
+			placeholder[3] = 0xfff800f8;
+			placeholder[2] = 0xff000000;
+#endif
+			t.m_imageData.m_data = (uint8_t*)placeholder;
+		}
+		else
+		{
+			// Record the fact that the texture file couldn't be loaded
+			// This means we can stop checking the filesystem every frame to see if the texture can be found
+			m_textures[name] = nullptr;
+			return nullptr;
+		}
 	}
 
-	if (t.m_pixels) {
-		return assignTexture(name, t);
-	} else {
-		return -1;
-	}
+	t.m_bEnableFiltering = m_bBlur;
+	t.m_bWrap = !m_bClamp;
+
+	return uploadTexture(name, t);
 }
 
-int Textures::assignTexture(const std::string& name, Texture& texture)
+size_t _mipTagStart(const std::string& path)
 {
-	GLuint textureID = 0;
+	// "_mip" + "0."
+	constexpr size_t mipSuffixLength = MIP_TAG_SIZE + 2;
 
-	glGenTextures(1, &textureID);
-	if (textureID != m_currBoundTex)
+	std::string extension = Util::getExtension(path);
+	size_t len = path.length() - extension.length();
+	if (len <= mipSuffixLength)
+		return 0;
+
+	return len - mipSuffixLength;
+}
+
+bool _isMipmap(const std::string& path)
+{
+	std::string mipTag = path.substr(_mipTagStart(path), MIP_TAG_SIZE);
+	return mipTag == MIP_TAG;
+}
+
+TextureData* Textures::uploadTexture(const std::string& name, TextureData& t)
+{
+	TextureData* result = nullptr;
+
+	bool isMipmap = _isMipmap(name);
+	if (isMipmap && name.find(MIP_TAG))
 	{
-		glBindTexture(GL_TEXTURE_2D, textureID);
-		m_currBoundTex = textureID;
+		if (mce::Texture::supportsMipMaps())
+		{
+			// Find the starting position of the mipmap tag (e.g., "_mip") in the filename.
+			size_t mipTagPos = _mipTagStart(name);
+
+			// Reconstruct the base texture name from the mipmapped filename.
+			// e.g., "images/terrain-atlas_mip0.tga" -> "images/terrain-atlas.tga"
+			std::string basePathNoExtension = name.substr(0, mipTagPos);
+			std::string extension = Util::getExtension(name); // "tga"
+			std::string basePath = basePathNoExtension + "." + extension;
+
+			TextureMap::iterator it = m_textures.find(basePath);
+			if (it != m_textures.end())
+			{
+				char mipLevelChar = name[mipTagPos + MIP_TAG_SIZE];
+				t.m_imageData.m_mipCount = mipLevelChar - '0';
+
+				TextureData* pBaseTexture = it->second;
+
+				if (pBaseTexture)
+				{
+					pBaseTexture->loadMipmap(t.m_imageData);
+				}
+
+				result = pBaseTexture;
+			}
+		}
+		return result;
 	}
 
-	if (MIPMAP)
-	{
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	}
-	else
-	{
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	}
+	t.load();
+	result = new TextureData(t);
+	m_textures[name] = result;
 
-	if (m_bBlur)
-	{
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	}
+	return result;
+}
 
-	if (m_bClamp)
+TextureAtlas* Textures::getTextureAtlas(const std::string& name)
+{
+	TextureAtlasMap::iterator it = m_atlases.find(name);
+	return it != m_atlases.end() ? it->second : nullptr;
+}
+
+void Textures::unloadAll()
+{
+	for (TextureMap::iterator it = m_textures.begin(); it != m_textures.end(); it++)
 	{
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	}
-	else
-	{
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		TextureData* pTexture = it->second;
+		if (pTexture)
+			pTexture->unload();
 	}
 
-	GLuint internalFormat = GL_RGB;
-
-	if (texture.m_hasAlpha)
-		internalFormat = GL_RGBA;
-
-	glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, texture.m_width, texture.m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, texture.m_pixels);
-
-	m_textures[name] = textureID;
-
-	m_textureData[textureID] = TextureData(textureID, texture);
-
-	return textureID;
+	TextureData::unbindAll();
 }
 
 void Textures::clear()
 {
+	unloadAll();
 	// note: Textures::clear() does not touch the dynamic textures vector
 
-	for (std::map<std::string, GLuint>::iterator it = m_textures.begin(); it != m_textures.end(); it++)
-		glDeleteTextures(1, &it->second);
-
-	for (std::map<GLuint, TextureData>::iterator it = m_textureData.begin(); it != m_textureData.end(); it++)
-		delete[] it->second.textureData.m_pixels;
+	for (TextureMap::iterator it = m_textures.begin(); it != m_textures.end(); it++)
+		delete it->second;
 
 	m_textures.clear();
-	m_textureData.clear();
 	m_currBoundTex = -1;
 }
 
-Textures::Textures(Options* pOptions, AppPlatform* pAppPlatform)
+Textures::Textures() :
+	m_guiAtlas("gui_atlas", DEFAULT_ATLAS_SIZE * 2),
+	m_filteredGuiAtlas("filtered_gui_atlas", true)
 {
 	m_bClamp = false;
 	m_bBlur = false;
 
-	m_pPlatform = pAppPlatform;
-	m_pOptions = pOptions;
 	m_currBoundTex = -1;
+
+	setupAtlases();
 }
 
 Textures::~Textures()
@@ -131,45 +183,60 @@ Textures::~Textures()
 
 void Textures::tick()
 {
+	mce::RenderContext& renderContext = mce::RenderContextImmediate::get();
+
 	// tick dynamic textures here
 	for (std::vector<DynamicTexture*>::iterator it = m_dynamicTextures.begin(); it < m_dynamicTextures.end(); it++)
 	{
 		DynamicTexture* pDynaTex = *it;
 
-		pDynaTex->bindTexture(this);
+		TextureData* pData = pDynaTex->bindTexture(this);
+		if (!pData) continue;
 		pDynaTex->tick();
+
+		mce::Texture& texture = pData->m_texture;
+
+		texture.enableWriteMode(renderContext);
 
 		for (int x = 0; x < pDynaTex->m_textureSize; x++)
 		{
 			for (int y = 0; y < pDynaTex->m_textureSize; y++)
 			{
-				// texture is already bound so this is fine:
-				glTexSubImage2D(
-					GL_TEXTURE_2D,
-					0,
+				texture.subBuffer(renderContext,
+					pDynaTex->m_pixels,
 					16 * (x + pDynaTex->m_textureIndex % 16),
 					16 * (y + pDynaTex->m_textureIndex / 16),
-					16, 16,
-					GL_RGBA,
-					GL_UNSIGNED_BYTE,
-					pDynaTex->m_pixels
-				);
+					16, 16, 0);
 			}
 		}
+
+		texture.disableWriteMode(renderContext);
 	}
 }
 
-int Textures::loadAndBindTexture(const std::string& name)
+TextureData* Textures::loadAndBindTexture(const std::string& name, bool isRequired, unsigned int textureUnit)
 {
-	int id = loadTexture(name, true);
+	TextureData* pTexture = getTextureData(name, isRequired);
 
-	if (m_currBoundTex != id)
-	{
-		m_currBoundTex = id;
-		glBindTexture(GL_TEXTURE_2D, id);
-	}
+	if (!pTexture)
+		return nullptr;
 
-	return id;
+	// bound twice on initial load in _loadTexData
+	// if it was just loaded, this is our third call to glBindTexture
+	pTexture->bind(textureUnit);
+
+	return pTexture;
+}
+
+TextureData* Textures::getTextureData(const std::string& name, bool isRequired)
+{
+	TextureMap::iterator it = m_textures.find(name);
+	TextureData* pTexture;
+	if (it != m_textures.end())
+		pTexture = it->second;
+	else
+		pTexture = loadTexture(name, isRequired);
+	return pTexture;
 }
 
 void Textures::addDynamicTexture(DynamicTexture* pTexture)
@@ -178,11 +245,91 @@ void Textures::addDynamicTexture(DynamicTexture* pTexture)
 	pTexture->tick();
 }
 
-Texture* Textures::getTemporaryTextureData(GLuint id)
+void Textures::addSprite(const std::string& name, TextureAtlas& atlas)
 {
-	std::map<GLuint, TextureData>::iterator i = m_textureData.find(id);
-	if (i == m_textureData.end())
-		return nullptr;
+	atlas.addSprite(name, Resource::loadTexture(name));
+}
 
-	return &i->second.textureData;
+void Textures::setupAtlas(TextureAtlas& atlas)
+{
+	atlas.build();
+	uploadTexture(atlas.m_name, atlas.m_texture);
+	m_atlases[atlas.m_name] = &atlas;
+}
+
+void Textures::setupAtlases(bool forceReset)
+{
+	if (forceReset)
+	{
+		m_guiAtlas.reset();
+		m_filteredGuiAtlas.reset();
+	}
+	
+	addSprite("gui/console/Graphics/IconHolder.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/IconHolderRed.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Warning.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Armour_Slot_Head.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Armour_Slot_Body.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Armour_Slot_Legs.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Armour_Slot_Feet.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Arrow_Off.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Arrow_On.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Arrow_Small_Off.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Flame_Off.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Flame_On.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/MainMenuButton_Norm.png", m_filteredGuiAtlas);
+	addSprite("gui/console/Graphics/MainMenuButton_Over.png", m_filteredGuiAtlas);
+	addSprite("gui/console/Graphics/ListButton_Norm.png", m_filteredGuiAtlas);
+	addSprite("gui/console/Graphics/ListButton_Over.png", m_filteredGuiAtlas);
+	addSprite("gui/console/Graphics/Tickbox_Norm.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Tickbox_Over.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Tick.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Slider_Track.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Slider_Button.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Tab_Creative7_L.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Tab_Creative7_M.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Tab_Creative7_R.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Tab_Left.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Tab_Middle.png", m_guiAtlas);
+	addSprite("gui/console/Graphics/Tab_Right.png", m_guiAtlas);
+	addSprite("gui/console/CraftingPanels/Craft_Highlight_L_Small.png", m_guiAtlas);
+	addSprite("gui/console/CraftingPanels/Crafting_2SlotLargeV.png", m_guiAtlas);
+	addSprite("gui/console/CraftingPanels/Crafting_3SlotLargeV.png", m_guiAtlas);
+	addSprite("gui/console/scrollDown.png", m_guiAtlas);
+	addSprite("gui/console/scrollUp.png", m_guiAtlas);
+	addSprite("gui/loading_block.png", m_guiAtlas);
+	addSprite("gui/container/entity_slot.png", m_guiAtlas);
+	addSprite("gui/slider_highlight.png", m_guiAtlas);
+	addSprite("gui/text_field.png", m_guiAtlas);
+	addSprite("gui/text_field_highlighted.png", m_guiAtlas);
+	addSprite("gui/console/icon_structures.png", m_guiAtlas);
+	addSprite("gui/console/icon_decoration.png", m_guiAtlas);
+	addSprite("gui/console/icon_Redstone_and_Transport.png", m_guiAtlas);
+	addSprite("gui/console/icon_materials.png", m_guiAtlas);
+	addSprite("gui/console/icon_food.png", m_guiAtlas);
+	addSprite("gui/console/icon_tools.png", m_guiAtlas);
+	addSprite("gui/console/icon_misc.png", m_guiAtlas);
+	addSprite("gui/console/icon_mechanisms.png", m_guiAtlas);
+	addSprite("gui/console/icon_armour.png", m_guiAtlas);
+	addSprite("gui/console/icon_transport.png", m_guiAtlas);
+	//addSprite("gui/loading_bar.png", m_guiAtlas);
+	//addSprite("gui/loading_background.png", m_guiAtlas);
+
+	for (int i = 0; i < 9; ++i)
+	{
+		addSprite(ScreenRenderer::PANEL_SLICES[i], m_guiAtlas);
+		addSprite(ScreenRenderer::SMALL_PANEL_SLICES[i], m_guiAtlas);
+		addSprite(ScreenRenderer::PANEL_RECESS_SLICES[i], m_guiAtlas);
+		addSprite(ScreenRenderer::POINTER_TEXT_PANEL_SLICES[i], m_guiAtlas);
+		addSprite(ScreenRenderer::PANEL_SQUARE_RECESS_SLICES[i], m_guiAtlas);
+	}
+
+	setupAtlas(m_guiAtlas);
+	setupAtlas(m_filteredGuiAtlas);
+}
+
+const TextureAtlasSprite* Textures::getGuiSprite(const std::string& spriteTexture)
+{
+	const TextureAtlasSprite* sprite = m_guiAtlas.getSprite(spriteTexture);
+	return sprite ? sprite : m_filteredGuiAtlas.getSprite(spriteTexture);
 }

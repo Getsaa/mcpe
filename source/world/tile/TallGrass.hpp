@@ -1,0 +1,20 @@
+#pragma once
+
+#include "Bush.hpp"
+
+class TallGrass : public Bush
+{
+public:
+	TallGrass(TileID id, int texture);
+
+public:
+	int getResource(TileData, Random*) const override;
+	bool isValidGrowTile(const TileID tile) const;
+	Color getColor(TileSource&, const TilePos& pos) const override;
+	Color getColor(Facing::Name face, TileData data) const override;
+	int getTexture(Facing::Name face, TileData data) const override;
+	eRenderShape getRenderShape() const override;
+
+public:
+	bool m_bBiomeColors;
+};

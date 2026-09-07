@@ -1,19 +1,24 @@
 /********************************************************************
 	Minecraft: Pocket Edition - Decompilation Project
 	Copyright (C) 2023 iProgramInCpp
-	
+
 	The following code is licensed under the BSD 1 clause license.
 	SPDX-License-Identifier: BSD-1-Clause
  ********************************************************************/
 
+#include "common/Logger.hpp"
 #include "world/level/Level.hpp"
+#include "world/level/TileSource.hpp"
 #include "world/item/TileItem.hpp"
 #include "world/entity/ItemEntity.hpp"
+#include "world/item/AuxTileItem.hpp"
+#include "world/item/ClothItem.hpp"
+#include "world/item/SlabItem.hpp"
+//#include "world/item/PistonItem.hpp"
 
 // Include tile definitions here
 #include "SandStoneTile.hpp"
 #include "SandTile.hpp"
-#include "SandStoneTile.hpp"
 #include "HalfTransparentTile.hpp"
 #include "GlassTile.hpp"
 #include "GravelTile.hpp"
@@ -49,15 +54,50 @@
 #include "BookshelfTile.hpp"
 #include "WireTile.hpp"
 #include "RocketLauncherTile.hpp"
+#include "RedStoneDustTile.hpp"
+#include "CraftingTableTile.hpp"
+#include "FurnaceTile.hpp"
+#include "TallGrass.hpp"
+#include "DeadBush.hpp"
+//#include "Fern.hpp"
+#include "CactusTile.hpp"
+#include "ChestTile.hpp"
+#include "PumpkinTile.hpp"
+#include "SoulSandTile.hpp"
+#include "GlowstoneTile.hpp"
+#include "FenceTile.hpp"
+
+#include "FenceGateTile.hpp"
+//#include "BedTile.hpp"
+#include "CropsTile.hpp"
+#include "Web.hpp"
+#include "SnowTile.hpp"
+//#include "SignTile.hpp"
+#include "LeverTile.hpp"
+#include "PressurePlateTile.hpp"
+//#include "RailTile.hpp"
+//#include "DetectorRailTile.hpp"
+#include "ButtonTile.hpp"
+//#include "MobSpawnerTile.hpp"
+#include "NotGateTile.hpp"
+#include "CakeTile.hpp"
+#include "DispenserTile.hpp"
+#include "MusicTile.hpp"
+#include "RecordPlayerTile.hpp"
+#include "TrapDoorTile.hpp"
+//#include "PortalTile.hpp"
+#include "DiodeTile.hpp"
+//#include "Mushroom.hpp"
 
 std::string Tile::TILE_DESCRIPTION_PREFIX = "tile.";
 
 Tile* Tile::tiles        [C_MAX_TILES];
-int   Tile::lightBlock   [C_MAX_TILES];
-int   Tile::lightEmission[C_MAX_TILES];
+Brightness_t   Tile::lightBlock   [C_MAX_TILES];
+Brightness_t   Tile::lightEmission[C_MAX_TILES];
 bool  Tile::shouldTick   [C_MAX_TILES];
 bool  Tile::solid        [C_MAX_TILES];
 bool  Tile::translucent  [C_MAX_TILES];
+float Tile::translucency [C_MAX_TILES];
 bool  Tile::isEntityTile [C_MAX_TILES];
 
 
@@ -65,14 +105,15 @@ void Tile::_init()
 {
 	m_TextureFrame = 1;
 	m_pSound = nullptr;
-	field_28 = 1.0f;
-	field_30 = 0.6f;
+	m_gravity = 1.0f;
+	m_friction = 0.6f;
 	m_hardness = 0.0f;
 	m_blastResistance = 0.0f;
 	m_descriptionID = "";
+	m_renderLayer = RENDER_LAYER_OPAQUE;
 }
 
-void Tile::_init(int ID, Material* pMaterial, int texture)
+void Tile::_init(TileID ID, Material* pMaterial, int texture)
 {
 	_init();
 
@@ -83,7 +124,7 @@ void Tile::_init(int ID, Material* pMaterial, int texture)
 	m_aabb = m_aabbReturned = AABB(0, 0, 0, 1, 1, 1);
 
 	if (tiles[m_ID])
-		// @BUG: Printing &tiles[m_ID], but probably supposed to print tiles[m_ID]
+		// @BUG: Printing &tiles[id], but probably supposed to print tiles[id]
 		LOG_W("Slot %d is already occupied by %p when adding %p", m_ID, &tiles[m_ID], this);
 }
 
@@ -134,7 +175,7 @@ Tile* Tile::setExplodeable(float power)
 	return this;
 }
 
-Tile* Tile::setLightBlock(int x)
+Tile* Tile::setLightBlock(Brightness_t x)
 {
 	lightBlock[m_ID] = x;
 	return this;
@@ -166,21 +207,24 @@ Tile* Tile::init()
 	tiles[m_ID] = this;
 
 	solid[m_ID] = isSolidRender();
-	lightBlock[m_ID] = isSolidRender() ? 255 : 0;
+	lightBlock[m_ID] = isSolidRender() ? Brightness::MAX : Brightness::MIN;
 	translucent[m_ID] = m_pMaterial->blocksLight();
-	isEntityTile[m_ID] = 0;
+	isEntityTile[m_ID] = hasTileEntity();
+
+	m_toolMask = Tool::NONE;
+	m_requiredToolLevel = 0;
 
 	return this;
 }
 
-int Tile::getRenderShape() const
+eRenderShape Tile::getRenderShape() const
 {
-	return 0;
+	return SHAPE_SOLID;
 }
 
 void Tile::updateDefaultShape()
 {
-	
+
 }
 
 int Tile::getTexture(Facing::Name face) const
@@ -188,9 +232,14 @@ int Tile::getTexture(Facing::Name face) const
 	return m_TextureFrame;
 }
 
-int Tile::getTexture(Facing::Name face, int data) const
+int Tile::getTexture(Facing::Name face, TileData data) const
 {
 	return getTexture(face);
+}
+
+int Tile::getTexture(TileSource& source, const TilePos& pos, Facing::Name face) const
+{
+	return getTexture(face, source.getData(pos));
 }
 
 int Tile::getTickDelay() const
@@ -203,9 +252,9 @@ bool Tile::isSignalSource() const
 	return false;
 }
 
-int Tile::getRenderLayer() const
+Tile::RenderLayer Tile::getRenderLayer(TileSource& source, const TilePos& pos) const
 {
-	return LAYER_OPAQUE;
+	return m_renderLayer;
 }
 
 bool Tile::isSolidRender() const
@@ -218,12 +267,17 @@ bool Tile::mayPick() const
 	return true;
 }
 
-bool Tile::mayPick(int x, bool y) const
+bool Tile::mayPick(TileData data, bool includeLiquid) const
 {
 	return mayPick();
 }
 
-int Tile::getResource(int x, Random* pRandom) const
+bool Tile::hasTileEntity() const
+{
+	return false;
+}
+
+int Tile::getResource(TileData data, Random* pRandom) const
 {
 	return m_ID;
 }
@@ -235,7 +289,31 @@ int Tile::getResourceCount(Random* pRandom) const
 
 int Tile::getSpawnResourcesAuxValue(int x) const
 {
-	return 1;
+	return 0;
+}
+
+bool Tile::isSeasonTinted() const
+{
+	return false;
+}
+
+Tile* Tile::setToolTypes(unsigned int toolMask)
+{
+	m_toolMask |= toolMask;
+	return this;
+}
+
+Tile* Tile::setToolLevel(int toolLevel)
+{
+	m_requiredToolLevel = toolLevel;
+	return this;
+}
+
+Tile* Tile::setToolTypesAndLevel(unsigned int toolMask, int toolLevel)
+{
+	setToolTypes(toolMask);
+	setToolLevel(toolLevel);
+	return this;
 }
 
 void Tile::initTiles()
@@ -296,14 +374,14 @@ void Tile::initTiles()
 		->init()
 		->setDestroyTime(0.0f)
 		->setLightEmission(1.0f)
-		->setLightBlock(255)
+		->setLightBlock(Brightness::MAX)
 		->setDescriptionId("lava");
 
 	Tile::calmLava = (new LiquidTileStatic(TILE_LAVA_CALM, Material::lava))
 		->init()
 		->setDestroyTime(100.0f)
 		->setLightEmission(1.0f)
-		->setLightBlock(255)
+		->setLightBlock(Brightness::MAX)
 		->setDescriptionId("lava");
 
 	Tile::sand = (new SandTile(TILE_SAND, TEXTURE_SAND, Material::sand))
@@ -322,6 +400,7 @@ void Tile::initTiles()
 		->init()
 		->setDestroyTime(3.0f)
 		->setExplodeable(5.0f)
+		->setToolTypesAndLevel(Tool::PICKAXE, 2)
 		->setSoundType(Tile::SOUND_STONE)
 		->setDescriptionId("oreGold");
 
@@ -329,6 +408,7 @@ void Tile::initTiles()
 		->init()
 		->setDestroyTime(3.0f)
 		->setExplodeable(5.0f)
+		->setToolTypesAndLevel(Tool::PICKAXE, 1)
 		->setSoundType(Tile::SOUND_STONE)
 		->setDescriptionId("oreIron");
 
@@ -348,7 +428,7 @@ void Tile::initTiles()
 	Tile::leaves = (new LeafTile(TILE_LEAVES))
 		->init()
 		->setDestroyTime(0.2f)
-		->setLightBlock(true)
+		->setLightBlock(1) // was "true"???
 		->setSoundType(Tile::SOUND_GRASS)
 		->setDescriptionId("leaves");
 
@@ -362,6 +442,7 @@ void Tile::initTiles()
 		->init()
 		->setDestroyTime(3.0f)
 		->setExplodeable(5.0f)
+		->setToolTypesAndLevel(Tool::PICKAXE, 1)
 		->setSoundType(Tile::SOUND_STONE)
 		->setDescriptionId("oreLapis");
 
@@ -369,6 +450,7 @@ void Tile::initTiles()
 		->init()
 		->setDestroyTime(3.0f)
 		->setExplodeable(10.0f)
+		->setToolTypesAndLevel(Tool::PICKAXE, 1)
 		->setSoundType(Tile::SOUND_METAL)
 		->setDescriptionId("blockLapis");
 
@@ -378,7 +460,7 @@ void Tile::initTiles()
 		->setDestroyTime(0.8f)
 		->setDescriptionId("sandStone");
 
-	Tile::cloth = (new ClothTile(TILE_CLOTH, 0xCF))
+	Tile::cloth = (new ClothTile(TILE_CLOTH))
 		->init()
 		->setDestroyTime(0.8f)
 		->setSoundType(Tile::SOUND_CLOTH)
@@ -413,6 +495,7 @@ void Tile::initTiles()
 		->init()
 		->setDestroyTime(3.0f)
 		->setExplodeable(10.0f)
+		->setToolTypesAndLevel(Tool::PICKAXE, 2)
 		->setSoundType(Tile::SOUND_METAL)
 		->setDescriptionId("blockGold");
 
@@ -420,6 +503,7 @@ void Tile::initTiles()
 		->init()
 		->setDestroyTime(5.0f)
 		->setExplodeable(10.0f)
+		->setToolTypesAndLevel(Tool::PICKAXE, 1)
 		->setSoundType(Tile::SOUND_METAL)
 		->setDescriptionId("blockIron");
 
@@ -467,6 +551,7 @@ void Tile::initTiles()
 		->init()
 		->setDestroyTime(10.0f)
 		->setExplodeable(2000.0f)
+		->setToolTypesAndLevel(Tool::PICKAXE, 3)
 		->setSoundType(Tile::SOUND_STONE)
 		->setDescriptionId("obsidian");
 
@@ -485,6 +570,7 @@ void Tile::initTiles()
 		->init()
 		->setDestroyTime(3.0f)
 		->setExplodeable(5.0f)
+		->setToolTypesAndLevel(Tool::PICKAXE, 2)
 		->setSoundType(Tile::SOUND_STONE)
 		->setDescriptionId("oreDiamond");
 
@@ -492,8 +578,9 @@ void Tile::initTiles()
 		->init()
 		->setDestroyTime(5.0f)
 		->setExplodeable(10.0f)
+		->setToolTypesAndLevel(Tool::PICKAXE, 2)
 		->setSoundType(Tile::SOUND_METAL)
-		->setDescriptionId("blockEmerald");
+		->setDescriptionId("blockDiamond");
 
 	Tile::farmland = (new FarmTile(TILE_FARMLAND, Material::dirt))
 		->init()
@@ -527,6 +614,7 @@ void Tile::initTiles()
 		->init()
 		->setDestroyTime(3.0f)
 		->setExplodeable(5.0f)
+		->setToolTypesAndLevel(Tool::PICKAXE, 2)
 		->setSoundType(Tile::SOUND_STONE)
 		->setDescriptionId("oreRedstone");
 
@@ -535,6 +623,7 @@ void Tile::initTiles()
 		->setDestroyTime(3.0f)
 		->setLightEmission(0.625f)
 		->setExplodeable(5.0f)
+		->setToolTypesAndLevel(Tool::PICKAXE, 2)
 		->setSoundType(Tile::SOUND_STONE)
 		->setDescriptionId("oreRedstone");
 
@@ -543,7 +632,7 @@ void Tile::initTiles()
 		->setDestroyTime(0.1f)
 		->setSoundType(Tile::SOUND_CLOTH)
 		->setDescriptionId("snow");
-	
+
 	Tile::ice = (new IceTile(TILE_ICE, TEXTURE_ICE, Material::ice))
 		->init()
 		->setDestroyTime(0.5f)
@@ -551,20 +640,18 @@ void Tile::initTiles()
 		->setSoundType(Tile::SOUND_GLASS)
 		->setDescriptionId("ice");
 
-	// @TODO: SnowTile class
-	Tile::snow = (new Tile(TILE_SNOW, TEXTURE_SNOW, Material::snow))
+	Tile::snow = (new SnowTile(TILE_SNOW, TEXTURE_SNOW))
 		->init()
 		->setDestroyTime(0.2f)
 		->setSoundType(Tile::SOUND_CLOTH)
 		->setDescriptionId("snow");
 
-	// @TODO: CactusTile class
-	/*Tile::cactus = (new CactusTile(TILE_CACTUS, TEXTURE_CACTUS, Material::cactus))
+	Tile::cactus = (new CactusTile(TILE_CACTUS, TEXTURE_CACTUS_SIDE))
 		->init()
 		->setDestroyTime(0.4f)
-		->setLightBlock(3)
+		//->setLightBlock(3)
 		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cactus");*/
+		->setDescriptionId("cactus");
 
 	Tile::clay = (new ClayTile(TILE_CLAY, TEXTURE_CLAY, Material::clay))
 		->init()
@@ -578,26 +665,24 @@ void Tile::initTiles()
 		->setSoundType(Tile::SOUND_GRASS)
 		->setDescriptionId("reeds");
 
-	// @TODO: FenceTile class
-	/*Tile::fence = (new FenceTile(TILE_WOOD, TEXTURE_PLANKS, Material::wood))
+	Tile::fence = (new FenceTile(TILE_FENCE, TEXTURE_PLANKS))
 		->init()
 		->setDestroyTime(2.0f)
 		->setExplodeable(5.0f)
 		->setSoundType(Tile::SOUND_WOOD)
-		->setDescriptionId("fence");*/
+		->setDescriptionId("fence");
 
 	Tile::invisible_bedrock = (new InvisibleTile(TILE_INVISIBLE, TEXTURE_STONE, Material::stone))
 		->init()
 		->setDestroyTime(-1.0f)
 		->setExplodeable(6000000.0f);
 
-	// @TODO: FenceGateTile class
-	/*Tile::fenceGate = (new FenceGateTile(TILE_WOOD, TEXTURE_PLANKS, Material::wood))
+	Tile::fenceGate = (new FenceGateTile(TILE_FENCE_GATE, TEXTURE_PLANKS))
 		->init()
 		->setDestroyTime(2.0f)
 		->setExplodeable(5.0f)
 		->setSoundType(Tile::SOUND_WOOD)
-		->setDescriptionId("fenceGate");*/
+		->setDescriptionId("fenceGate");
 
 	Tile::info_updateGame1 = (new DirtTile(TILE_INFO_UPDATEGAME1, TEXTURE_INFO_UPDATEGAME1, Material::dirt))
 		->init()
@@ -614,11 +699,11 @@ void Tile::initTiles()
 	Tile::leaves_carried = (new LeafTile(TILE_LEAVES_CARRIED))
 		->init()
 		->setDestroyTime(0.2f)
-		->setLightBlock(true)
+		->setLightBlock(1) // was "true"???
 		->setSoundType(Tile::SOUND_GRASS)
 		->setDescriptionId("leaves");
 
-	Tile::info_reserved6 = (new Tile(TEXTURE_LAVA_PLACEHOLDER, Material::dirt))
+	Tile::info_reserved6 = (new Tile(TILE_INFO_RESERVED6, Material::dirt))
 		->init();
 
 	Tile::fire = (new FireTile(TILE_FIRE, TEXTURE_FIRE1))
@@ -627,99 +712,6 @@ void Tile::initTiles()
 		->setLightEmission(1.0f)
 		->setSoundType(Tile::SOUND_WOOD)  // @NOTE: Setting fire's sound to Wood
 		->setDescriptionId("fire");
-	
-
-	// @TODO: Remove these in favor of what can be found below in 0.2.1
-
-	Tile::cloth_00 = (new ClothTile(TILE_CLOTH_00, 15))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
-
-	Tile::cloth_10 = (new ClothTile(TILE_CLOTH_10, 14))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
-
-	Tile::cloth_20 = (new ClothTile(TILE_CLOTH_20, 13))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
-
-	Tile::cloth_30 = (new ClothTile(TILE_CLOTH_30, 12))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
-
-	Tile::cloth_40 = (new ClothTile(TILE_CLOTH_40, 11))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
-
-	Tile::cloth_50 = (new ClothTile(TILE_CLOTH_50, 10))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
-
-	Tile::cloth_60 = (new ClothTile(TILE_CLOTH_60, 9))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
-
-	Tile::cloth_70 = (new ClothTile(TILE_CLOTH_70, 8))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
-
-	Tile::cloth_01 = (new ClothTile(TILE_CLOTH_01, 7))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
-
-	Tile::cloth_11 = (new ClothTile(TILE_CLOTH_11, 6))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
-
-	Tile::cloth_21 = (new ClothTile(TILE_CLOTH_21, 5))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
-
-	Tile::cloth_31 = (new ClothTile(TILE_CLOTH_31, 4))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
-
-	Tile::cloth_41 = (new ClothTile(TILE_CLOTH_41, 3))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
-
-	Tile::cloth_51 = (new ClothTile(TILE_CLOTH_51, 2))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
-
-	Tile::cloth_61 = (new ClothTile(TILE_CLOTH_61, 1))
-		->init()
-		->setDestroyTime(0.8f)
-		->setSoundType(Tile::SOUND_CLOTH)
-		->setDescriptionId("cloth");
 
 	// custom additions here
 
@@ -748,12 +740,197 @@ void Tile::initTiles()
 		->setSoundType(Tile::SOUND_STONE)
 		->setDescriptionId("rocketLauncher");
 
-	// @TODO: This is from 0.2.1, add this and get rid of the numbered cloth entries.
-	/*Item::items[Tile::cloth->m_ID] = (new ClothTileItem(Tile::cloth->m_ID - C_MAX_TILES))
+	Tile::tallGrass = (new TallGrass(TILE_TALL_GRASS, TEXTURE_TALL_GRASS))
+		->init()
+		->setSoundType(Tile::SOUND_GRASS)
+		->setDestroyTime(0.0f)
+		->setDescriptionId("tallGrass");
+
+	Tile::deadBush = (new DeadBush(TILE_DEAD_BUSH, TEXTURE_DEAD_BUSH))
+		->init()
+		->setSoundType(Tile::SOUND_GRASS)
+		->setDestroyTime(0.0f)
+		->setDescriptionId("deadBush");
+
+	Tile::pumpkin = (new PumpkinTile(TILE_PUMPKIN, false))
+		->init()
+		->setDestroyTime(1.0f)
+		->setSoundType(Tile::SOUND_WOOD)
+		->setDescriptionId("pumpkin");
+
+	Tile::pumpkinLantern = (new PumpkinTile(TILE_PUMPKIN_LIT, true))
+		->init()
+		->setDestroyTime(1.0f)
+		->setLightEmission(1.0f)
+		->setSoundType(Tile::SOUND_WOOD)
+		->setDescriptionId("litpumpkin");
+	
+	Tile::cake = (new CakeTile(TILE_CAKE, TEXTURE_CAKE_TOP))
+		->init()
+		->setDestroyTime(0.5f)
+		->setSoundType(Tile::SOUND_CLOTH)
+		->setDescriptionId("cake");
+
+	Tile::trapDoor = (new TrapdoorTile(TILE_TRAPDOOR, Material::wood))
+		->init()
+		->setDestroyTime(3.0f)
+		->setSoundType(Tile::SOUND_WOOD)
+		->setDescriptionId("trapdoor");
+
+	Tile::netherrack = (new Tile(TILE_NETHERRACK, TEXTURE_BLOODSTONE, Material::stone))
+		->init()
+		->setDestroyTime(0.4f)
+		->setSoundType(Tile::SOUND_STONE)
+		->setDescriptionId("hellrock");
+
+	Tile::soulSand = (new SoulSandTile(TILE_SOUL_SAND, TEXTURE_SOULSAND))
+		->init()
+		->setDestroyTime(0.5f)
+		->setSoundType(Tile::SOUND_SAND)
+		->setDescriptionId("hellsand");
+
+	Tile::glowstone = (new GlowstoneTile(TILE_GLOWSTONE, TEXTURE_GLOWSTONE, Material::stone))
+		->init()
+		->setDestroyTime(0.3f)
+		->setLightEmission(1.0f)
+		->setSoundType(Tile::SOUND_GLASS)
+		->setDescriptionId("lightgem");
+
+	Tile::web = (new Web(TILE_COBWEB, TEXTURE_COBWEB))
+		->init()
+		->setDestroyTime(4.0f)
+		->setLightBlock(1)
+		->setSoundType(Tile::SOUND_CLOTH)
+		->setDescriptionId("web");
+
+	Tile::redStoneDust = (new RedStoneDustTile(TILE_WIRE, TEXTURE_REDSTONE_DUST))
+		->init()
+		->setDestroyTime(0.0f)
+		->setSoundType(Tile::SOUND_NORMAL)
+		->setDescriptionId("redstoneDust");
+
+	Tile::lever = (new LeverTile(TILE_LEVER, TEXTURE_LEVER))
+		->init()
+		->setDestroyTime(0.5f)
+		->setSoundType(Tile::SOUND_WOOD)
+		->setDescriptionId("lever");
+
+	Tile::pressurePlate_stone = (new PressurePlateTile(TILE_PLATE_STONE, TEXTURE_STONE, PressurePlateTile::SENSITIVITY_MOBS))
+		->init()
+		->setDestroyTime(0.5f)
+		->setSoundType(Tile::SOUND_STONE)
+		->setDescriptionId("pressurePlate");
+
+	Tile::pressurePlate_wood = (new PressurePlateTile(TILE_PLATE_WOOD, TEXTURE_PLANKS, PressurePlateTile::SENSITIVITY_EVERYTHING))
+		->init()
+		->setDestroyTime(0.5f)
+		->setSoundType(Tile::SOUND_WOOD)
+		->setDescriptionId("pressurePlate");
+
+	Tile::notGate_off = (new NotGateTile(TILE_NOT_GATE_OFF, TEXTURE_TORCH_RED_STONE_OFF, false))
+		->init()
+		->setDestroyTime(0.0f)
+		->setSoundType(Tile::SOUND_WOOD)
+		->setDescriptionId("notGate");
+
+	Tile::notGate_on = (new NotGateTile(TILE_NOT_GATE_ON, TEXTURE_TORCH_RED_STONE, true))
+		->init()
+		->setDestroyTime(0.0f)
+		->setLightEmission(0.5f)
+		->setSoundType(Tile::SOUND_WOOD)
+		->setDescriptionId("notGate");
+
+	Tile::button = (new ButtonTile(TILE_BUTTON_STONE, TEXTURE_STONE))
+		->init()
+		->setDestroyTime(0.5f)
+		->setSoundType(Tile::SOUND_STONE)
+		->setDescriptionId("button");
+
+	Tile::diode_off = (new DiodeTile(TILE_REPEATER_OFF, false))
+		->init()
+		->setDestroyTime(0.0f)
+		->setSoundType(Tile::SOUND_WOOD)
+		->setDescriptionId("diode");
+
+	Tile::diode_on = (new DiodeTile(TILE_REPEATER_ON, true))
+		->init()
+		->setDestroyTime(0.0f)
+		->setLightEmission(10.0f / 16.0f)
+		->setSoundType(Tile::SOUND_WOOD)
+		->setDescriptionId("diode");
+
+	Tile::craftingTable = (new CraftingTableTile(TILE_WORKBENCH))
+		->init()
+		->setDestroyTime(2.5f)
+		->setSoundType(Tile::SOUND_WOOD)
+		->setDescriptionId("workbench");
+
+	Tile::crops = (new CropsTile(TILE_WHEAT, TEXTURE_WHEAT_0))
+		->init()
+		->setDestroyTime(0.0f)
+		->setSoundType(Tile::SOUND_GRASS)
+		->setDescriptionId("crops");
+
+	Tile::musicBlock = (new MusicTile(TILE_NOTE_BLOCK, TEXTURE_JUKEBOX_SIDE))
+		->init()
+		->setSoundType(Tile::SOUND_WOOD)
+		->setDestroyTime(0.8f)
+		->setDescriptionId("musicBlock");
+
+	Tile::furnace = (new FurnaceTile(TILE_FURNACE, false))
+		->init()
+		->setDestroyTime(3.5f)
+		->setSoundType(Tile::SOUND_STONE)
+		->setDescriptionId("furnace");
+
+	Tile::furnaceLit = (new FurnaceTile(TILE_FURNACE_LIT, true))
+		->init()
+		->setLightEmission(14.0f / 16.0f)
+		->setDestroyTime(3.5f)
+		->setSoundType(Tile::SOUND_STONE)
+		->setDescriptionId("furnace");
+
+	Tile::chest = (new ChestTile(TILE_CHEST, TEXTURE_CHEST_ONE_SIDE))
+		->init()
+		->setDestroyTime(2.5f)
+		->setSoundType(Tile::SOUND_WOOD)
+		->setDescriptionId("chest");
+
+	Tile::dispenser = (new DispenserTile(TILE_DISPENSER))
+		->init()
+		->setDestroyTime(3.5f)
+		->setSoundType(Tile::SOUND_STONE)
+		->setDescriptionId("dispenser");
+
+	Tile::recordPlayer = (new RecordPlayerTile(TILE_JUKEBOX, TEXTURE_JUKEBOX_SIDE))
+		->init()
+		->setDestroyTime(2.0f)
+		->setExplodeable(10.0f)
+		->setSoundType(Tile::SOUND_STONE)
+		->setDescriptionId("jukebox");
+
+	// Great
+	Item::items[Tile::cloth->m_ID] = (new ClothItem(Tile::cloth->m_ID - C_MAX_TILES))
 		->setDescriptionId("cloth");
 
-	Item::items[Tile::treeTrunk->m_ID] = (new AuxDataTileItem(Tile::treeTrunk->m_ID - C_MAX_TILES))
-		->setDescriptionId("log");*/
+	Item::items[Tile::treeTrunk->m_ID] = (new AuxTileItem(Tile::treeTrunk->m_ID - C_MAX_TILES))
+		->setDescriptionId("log");
+
+	Item::items[Tile::stoneSlabHalf->m_ID] = (new SlabItem(Tile::stoneSlabHalf->m_ID - C_MAX_TILES))
+		->setDescriptionId("stoneSlab");
+
+	Item::items[Tile::leaves->m_ID] = (new AuxTileItem(Tile::leaves->m_ID - C_MAX_TILES))
+		->setDescriptionId("leaves");
+
+	Item::items[Tile::sapling->m_ID] = (new AuxTileItem(Tile::sapling->m_ID - C_MAX_TILES))
+		->setDescriptionId("sapling");
+
+	Item::items[Tile::tallGrass->m_ID] = (new AuxTileItem(Tile::tallGrass->m_ID - C_MAX_TILES))
+		->setDescriptionId("tallGrass");
+
+	//Item::items[Tile::piston->id] = (new PistonItem(Tile::piston->id - C_MAX_TILES));
+
+	//Item::items[Tile::stickyPiston->id] = (new PistonItem(Tile::stickyPiston->id - C_MAX_TILES));
 
 	for (int i = 0; i < C_MAX_TILES; i++)
 	{
@@ -768,25 +945,48 @@ void Tile::teardownTiles()
 		delete tiles[i];
 }
 
-void Tile::updateShape(const LevelSource* a, const TilePos& pos)
+TileID Tile::TransformToValidBlockId(TileID tileId, TilePos pos)
+{
+	if (tileId != TILE_AIR && !Tile::tiles[tileId])
+	{
+		// Lifted from 0.2.1. Don't ask me what this is doing, or why it's doing it
+		if ((((int8_t)pos.y + (int8_t)pos.x + (int8_t)pos.z) & 1) != 0)
+			return Tile::info_updateGame1->m_ID;
+		else
+			return Tile::info_updateGame2->m_ID;
+	}
+	return tileId;
+}
+
+TileID Tile::TransformToValidBlockId(TileID tileId)
+{
+	return TransformToValidBlockId(tileId, TilePos::ZERO);
+}
+
+void Tile::updateShape(const TileSource& source, const TilePos& pos)
 {
 }
 
-void Tile::addLights(Level* p, const TilePos& pos)
+void Tile::addLights(TileSource& source, const TilePos& pos)
 {
 }
 
-float Tile::getBrightness(const LevelSource* pSrc, const TilePos& pos) const
+float Tile::getBrightness(TileSource& source, const TilePos& pos) const
 {
-	return pSrc->getBrightness(pos);
+	return source.getBrightness(pos);
 }
 
-int Tile::getColor(const LevelSource* pSrc, const TilePos& pos) const
+Color Tile::getColor(TileSource& source, const TilePos& pos) const
 {
-	return 0xFFFFFF; // White
+	return Color::WHITE;
 }
 
-AABB* Tile::getAABB(const Level* pLevel, const TilePos& pos)
+Color Tile::getColor(Facing::Name face, TileData) const
+{
+	return Color::WHITE;
+}
+
+AABB* Tile::getAABB(const TileSource& source, const TilePos& pos)
 {
 	Vec3 offset(pos);
 
@@ -794,15 +994,15 @@ AABB* Tile::getAABB(const Level* pLevel, const TilePos& pos)
 	return &m_aabbReturned;
 }
 
-AABB Tile::getTileAABB(const Level* pLevel, const TilePos& pos)
+AABB Tile::getTileAABB(TileSource& source, const TilePos& pos)
 {
 	Vec3 offset(pos);
 	return AABB(offset + m_aabb.min, offset + m_aabb.max);
 }
 
-void Tile::addAABBs(const Level* pLevel, const TilePos& pos, const AABB* aabb, std::vector<AABB>& out)
+void Tile::addAABBs(TileSource& source, const TilePos& pos, const AABB* aabb, std::vector<AABB>& out)
 {
-	AABB* pTileAABB = getAABB(pLevel, pos);
+	AABB* pTileAABB = getAABB(source, pos);
 
 	if (pTileAABB && pTileAABB->intersect(*aabb))
 	{
@@ -810,7 +1010,7 @@ void Tile::addAABBs(const Level* pLevel, const TilePos& pos, const AABB* aabb, s
 	}
 }
 
-bool Tile::shouldRenderFace(const LevelSource* pSrc, const TilePos& pos, Facing::Name face)  const
+bool Tile::shouldRenderFace(TileSource& source, const TilePos& pos, Facing::Name face)  const
 {
 	//if ((y | x | z) > C_MAX_CHUNKS_Z * 16)
 	//	return false;
@@ -840,9 +1040,12 @@ bool Tile::shouldRenderFace(const LevelSource* pSrc, const TilePos& pos, Facing:
 	case Facing::UP:
 		if (m_aabb.max.y < 1.0f) return true;
 		break;
+	default:
+		assert(false);
+		return false;
 	}
 
-	Tile* pTile = Tile::tiles[pSrc->getTile(pos)];
+	Tile* pTile = Tile::tiles[source.getTile(pos)];
 	if (!pTile)
 		return true;
 
@@ -852,54 +1055,55 @@ bool Tile::shouldRenderFace(const LevelSource* pSrc, const TilePos& pos, Facing:
 	return !pTile->isSolidRender();
 }
 
-int Tile::getTexture(const LevelSource* pSrc, const TilePos& pos, Facing::Name face) const
-{
-	return getTexture(face, pSrc->getData(pos));
-}
-
-bool Tile::canSurvive(const Level* pLevel, const TilePos& pos) const
+bool Tile::canSurvive(const TileSource& source, const TilePos& pos) const
 {
 	return true;
 }
 
 // returns if we can place over the tile
-bool Tile::mayPlace(const Level* pLevel, const TilePos& pos) const
+bool Tile::mayPlace(const TileSource& source, const TilePos& pos) const
 {
-	TileID tile = pLevel->getTile(pos);
+	TileID tile = source.getTile(pos);
 	if (!tile)
 		return true; // we can definitely place something over air
-	
+
 	return Tile::tiles[tile]->m_pMaterial->isLiquid();
 }
 
-void Tile::tick(Level* pLevel, const TilePos& pos, Random* pRandom)
+bool Tile::tryToPlace(TileSource& source, const TilePos& pos, TileData data)
+{
+	if (!source.mayPlace(m_ID, pos, true))
+		return false;
+
+	return source.setTile(pos, m_ID);
+}
+
+void Tile::tick(TileSource& source, const TilePos& pos, Random* random)
 {
 
 }
 
-void Tile::animateTick(Level* pLevel, const TilePos& pos, Random* pRandom)
+void Tile::animateTick(TileSource& source, const TilePos& pos, Random* pRandom)
 {
 
 }
 
-void Tile::destroy(Level* pLevel, const TilePos& pos, int data)
+void Tile::destroy(TileSource& source, const TilePos& pos, TileData data)
 {
 
 }
 
-void Tile::neighborChanged(Level* pLevel, const TilePos& pos, TileID tile)
+void Tile::neighborChanged(TileSource& source, const TilePos& pos, TileID tile)
 {
 
 }
 
-void Tile::onPlace(Level* pLevel, const TilePos& pos)
+void Tile::onPlace(TileSource& source, const TilePos& pos)
 {
-
 }
 
-void Tile::onRemove(Level* pLevel, const TilePos& pos)
+void Tile::onRemove(TileSource& source, const TilePos& pos)
 {
-
 }
 
 bool Tile::containsX(const Vec3& v)
@@ -926,9 +1130,9 @@ bool Tile::containsZ(const Vec3& v)
 		&& v.y <= m_aabb.max.y;
 }
 
-HitResult Tile::clip(const Level* level, const TilePos& pos, Vec3 vec1, Vec3 vec2)
+HitResult Tile::clip(const TileSource& source, const TilePos& pos, Vec3 vec1, Vec3 vec2)
 {
-	updateShape(level, pos);
+	updateShape(source, pos);
 
 	Vec3 clipMinX, clipMinY, clipMinZ;
 	Vec3 clipMaxX, clipMaxY, clipMaxZ;
@@ -992,80 +1196,85 @@ HitResult Tile::clip(const Level* level, const TilePos& pos, Vec3 vec1, Vec3 vec
 	return HitResult(pos, collType, *pVec + pos);
 }
 
-int Tile::getSignal(const LevelSource* pLevel, const TilePos& pos) const
+int Tile::getSignal(const TileSource& source, const TilePos& pos) const
 {
 	return 0;
 }
 
-int Tile::getSignal(const LevelSource* pLevel, const TilePos& pos, Facing::Name face) const
+int Tile::getSignal(const TileSource& source, const TilePos& pos, Facing::Name face) const
 {
 	return 0;
 }
 
-int Tile::getDirectSignal(const Level* pLevel, const TilePos& pos, Facing::Name face) const
+int Tile::getDirectSignal(const TileSource& source, const TilePos& pos, Facing::Name face) const
 {
 	return 0;
 }
 
-void Tile::triggerEvent(Level* pLevel, const TilePos& pos, int a, int b)
+void Tile::triggerEvent(TileSource& source, const TileEvent& event)
 {
 
 }
 
-void Tile::entityInside(Level* pLevel, const TilePos& pos, Entity* pEnt) const
+void Tile::entityInside(TileSource& source, const TilePos& pos, Entity* pEnt) const
 {
 
 }
 
-void Tile::handleEntityInside(Level* pLevel, const TilePos& pos, const Entity* pEnt, Vec3& vec)
+void Tile::handleEntityInside(TileSource& source, const TilePos& pos, const Entity* pEnt, Vec3& vec)
 {
 
 }
 
-float Tile::getDestroyProgress(Player* player) const
+float Tile::getDestroyProgress(Player& player) const
 {
+	if (player.isCreative())
+		return 1.0f;
+
 	if (m_hardness < 0.0f)
 		return 0.0f;
 
-	if (!player->canDestroy(this))
+	if (!player.canDestroy(this))
 		return 1.0f / m_hardness / 100.0f;
 
-	return player->getDestroySpeed() / m_hardness / 30.0f;
+	return player.getDestroySpeed(this) / m_hardness / 30.0f;
 }
 
-void Tile::spawnResources(Level* pLevel, const TilePos& pos, int data)
+void Tile::spawnResources(TileSource& source, const TilePos& pos, TileData data)
 {
-	return spawnResources(pLevel, pos, data, 1.0f);
+	return spawnResources(source, pos, data, 1.0f);
 }
 
-void Tile::spawnResources(Level* pLevel, const TilePos& pos, int data, float fChance)
+void Tile::spawnResources(TileSource& source, const TilePos& pos, TileData data, float fChance)
 {
-	if (pLevel->m_bIsMultiplayer)
+	Level& level = source.getLevel();
+	if (level.m_bIsClientSide)
 		return;
 
-	int count = getResourceCount(&pLevel->m_random);
+	int count = getResourceCount(&level.m_random);
 	for (int i = 0; i < count; i++)
 	{
-		if (pLevel->m_random.nextFloat() > fChance)
+		if (level.m_random.nextFloat() > fChance)
 			continue;
 
-		int id = getResource(data, &pLevel->m_random);
+		int id = getResource(data, &level.m_random);
 		if (id <= 0)
 			continue;
 
-		Vec3 o((pLevel->m_random.nextFloat() * 0.7f) + (1.0f - 0.7f) * 0.5f,
-			   (pLevel->m_random.nextFloat() * 0.7f) + (1.0f - 0.7f) * 0.5f,
-			   (pLevel->m_random.nextFloat() * 0.7f) + (1.0f - 0.7f) * 0.5f);
+		Vec3 o((level.m_random.nextFloat() * 0.7f) + (1.0f - 0.7f) * 0.5f,
+			   (level.m_random.nextFloat() * 0.7f) + (1.0f - 0.7f) * 0.5f,
+			   (level.m_random.nextFloat() * 0.7f) + (1.0f - 0.7f) * 0.5f);
 
-		ItemInstance inst(id, 1, getSpawnResourcesAuxValue(data));
-		ItemEntity* pEntity = new ItemEntity(pLevel, Vec3(pos) + o, &inst);
-		pEntity->field_E4 = 10;
+		ItemStack item(id, 1, getSpawnResourcesAuxValue(data));
 
-		pLevel->addEntity(pEntity);
+		ItemEntity* entity = new ItemEntity(source, Vec3(pos) + o, item);
+		entity->m_throwTime = 10;
+
+		level.addEntity(entity);
 	}
 }
 
-int Tile::spawnBurnResources(Level*, float, float, float)
+int Tile::spawnBurnResources(TileSource& source, float, float, float)
 {
 	return 0;
 }
@@ -1075,47 +1284,47 @@ float Tile::getExplosionResistance(Entity* entity) const
 	return m_blastResistance / 5.0f;
 }
 
-void Tile::wasExploded(Level* pLevel, const TilePos& pos)
+void Tile::wasExploded(TileSource& source, const TilePos& pos)
 {
 
 }
 
-int Tile::use(Level* pLevel, const TilePos& pos, Player* player)
+bool Tile::use(const TilePos& pos, Player& player)
 {
-	return 0;
+	return false;
 }
 
-void Tile::stepOn(Level* pLevel, const TilePos& pos, Entity* entity)
-{
-
-}
-
-void Tile::setPlacedOnFace(Level* pLevel, const TilePos& pos, Facing::Name face)
+void Tile::stepOn(TileSource& source, const TilePos& pos, Entity* entity)
 {
 
 }
 
-void Tile::setPlacedBy(Level* pLevel, const TilePos& pos, Mob* mob)
+void Tile::setPlacedOnFace(TileSource& source, const TilePos& pos, Facing::Name face)
 {
 
 }
 
-void Tile::prepareRender(Level* pLevel, const TilePos& pos)
+void Tile::setPlacedBy(const TilePos& pos, Mob& mob)
 {
 
 }
 
-void Tile::attack(Level* pLevel, const TilePos& pos, Player* player)
+void Tile::prepareRender(TileSource& source, const TilePos& pos)
 {
 
 }
 
-void Tile::playerDestroy(Level* level, Player* player, const TilePos& pos, int data)
+void Tile::attack(const TilePos& pos, Player& player)
 {
-	spawnResources(level, pos, data);
+
 }
 
-void Tile::playerWillDestroy(Player* player, const TilePos& pos, int data)
+void Tile::playerDestroy(Player& player, const TilePos& pos, TileData data)
+{
+	spawnResources(player.getTileSource(), pos, data);
+}
+
+void Tile::playerWillDestroy(Player& player, const TilePos& pos, TileData data)
 {
 
 }
@@ -1127,9 +1336,9 @@ const Tile::SoundType
 	Tile::SOUND_GRASS ("grass",  0.5f, 1.0f),
 	Tile::SOUND_STONE ("stone",  1.0f, 1.0f),
 	Tile::SOUND_METAL ("stone",  1.0f, 1.5f),
-	Tile::SOUND_GLASS ("stone",  1.0f, 1.0f),
+	Tile::SOUND_GLASS ("stone",  /*"glass",*/1.0f, 1.0f),
 	Tile::SOUND_CLOTH ("cloth",  1.0f, 1.0f),
-	Tile::SOUND_SAND  ("sand",   1.0f, 1.0f),
+	Tile::SOUND_SAND  ("sand",  /*"gravel",*/ 1.0f, 1.0f),
 	Tile::SOUND_SILENT("",       1.0f, 1.0f);
 
 // @TODO: Refactor this so that Tile::fire is already a FireTile* etc
@@ -1154,21 +1363,6 @@ Tile
 	*Tile::stoneSlab,
 	*Tile::stoneSlabHalf,
 	*Tile::cloth,
-	*Tile::cloth_00,
-	*Tile::cloth_10,
-	*Tile::cloth_20,
-	*Tile::cloth_30,
-	*Tile::cloth_40,
-	*Tile::cloth_50,
-	*Tile::cloth_60,
-	*Tile::cloth_70,
-	*Tile::cloth_01,
-	*Tile::cloth_11,
-	*Tile::cloth_21,
-	*Tile::cloth_31,
-	*Tile::cloth_41,
-	*Tile::cloth_51,
-	*Tile::cloth_61,
 	*Tile::flower,
 	*Tile::rose,
 	*Tile::mushroom1,
@@ -1203,10 +1397,41 @@ Tile
 	*Tile::door_iron,
 	*Tile::info_updateGame1,
 	*Tile::info_updateGame2,
+	// custom additions here
 	*Tile::sapling,
 	*Tile::sponge,
 	*Tile::lapisBlock,
 	*Tile::bookshelf,
 	*Tile::mossStone,
 	*Tile::cryingObsidian,
-	*Tile::rocketLauncher;
+	*Tile::rocketLauncher,
+	*Tile::cactus,
+	*Tile::tallGrass,
+	*Tile::deadBush,
+	*Tile::pumpkin,
+	*Tile::pumpkinLantern,
+	*Tile::netherrack,
+	*Tile::soulSand,
+	*Tile::glowstone,
+	*Tile::web,
+	*Tile::fence,
+	*Tile::fenceGate,
+	*Tile::redStoneDust,
+	*Tile::lever,
+	*Tile::pressurePlate_stone,
+	*Tile::pressurePlate_wood,
+	*Tile::notGate_off,
+	*Tile::notGate_on,
+	*Tile::button,
+	*Tile::diode_off,
+	*Tile::diode_on,
+	*Tile::craftingTable,
+	*Tile::crops,
+	*Tile::musicBlock,
+	*Tile::furnace,
+	*Tile::furnaceLit,
+	*Tile::chest,
+	*Tile::dispenser,
+	*Tile::recordPlayer,
+	*Tile::cake,
+	*Tile::trapDoor;

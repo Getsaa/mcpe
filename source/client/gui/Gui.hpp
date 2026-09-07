@@ -9,10 +9,9 @@
 #pragma once
 
 #include "GuiComponent.hpp"
-#include "client/player/input/RectangleArea.hpp"
-#include "client/app/Minecraft.hpp"
 #include "common/Random.hpp"
-#include "common/Utils.hpp"
+#include "client/player/input/RectangleArea.hpp"
+#include "client/renderer/RenderChunk.hpp"
 
 class Minecraft; // in case we're included from Minecraft.hpp
 
@@ -26,8 +25,23 @@ struct GuiMessage
 
 class Gui : public GuiComponent
 {
+protected:
+	class Materials
+	{
+	public:
+		mce::MaterialPtr ui_vignette;
+		mce::MaterialPtr ui_overlay;
+		mce::MaterialPtr ui_invert_overlay;
+		mce::MaterialPtr ui_overlay_textured;
+		mce::MaterialPtr ui_invert_overlay_textured;
+		mce::MaterialPtr ui_crosshair;
+
+		Materials();
+	};
+
 private:
 	static bool _isVignetteAvailable;
+
 public:
 	static bool isVignetteAvailable() { return _isVignetteAvailable; }
 	static void setIsVignetteAvailable(bool value) { _isVignetteAvailable = value; }
@@ -35,31 +49,56 @@ public:
 private:
 	void renderPumpkin(int, int);
 	void renderVignette(float, int, int);
+	void _buildFeedbackMeshes();
 
 public:
 	Gui(Minecraft* pMinecraft);
 
+public:
 	void addMessage(const std::string& str);
 	void inventoryUpdated();
 	void setNowPlaying(const std::string& str);
-	void render(float f, bool bHaveScreen, int mouseX, int mouseY);
+	void render(float f, bool bHaveScreen);
 	void tick();
 	void renderSlot(int slot, int x, int y, float f);
 	void renderSlotOverlay(int slot, int x, int y, float f);
+	void renderAnimatedCharacter(int x, int y, float);
 	int  getSlotIdAt(int mx, int my);
 	bool isInside(int mx, int my);
 	void handleClick(int id, int mx, int my);
-	void handleKeyPressed(int keyCode);
+	void handleScrollWheel(bool down);
+	void handleUserAction(const ActionInfo&);
 	void renderMessages(bool bShowAll);
+	void renderHearts(bool topLeft);
+	void renderArmor(bool topLeft);
+	void renderHunger(bool topLeft);
+	void renderBubbles(bool topLeft);
+	void renderProgressIndicator(int width, int height, float f);
+	void renderExperience();
+	void renderToolBar(float f, float alpha);
 	int getNumSlots();					  // Gets the number of slots in the inventory. Includes the '...' if in touch mode.
 	int getNumUsableSlots();			  // Gets the number of usable slots in the inventory. Does not include the '...' if in touch mode.
 	RectangleArea getRectangleArea(bool b);
 
 public:
-	static float InvGuiScale;
+	static float GuiScale;
+	static int GuiWidth;
+	static int GuiHeight;
+    
+private:
+	bool m_feedbackMeshesBuilt;
+	mce::Mesh m_feedbackOuter;
+	mce::Mesh m_feedbackInner;
+	float m_lastProgress;
+	int m_animatedCharacterTimer;
+
+protected:
+	Materials m_guiMaterials;
 
 public:
-	float field_8;
+	float m_progress;
+	float m_lastDestroyProgress;
+	float m_destroyProgress;
 	std::string field_C;
 	std::vector<GuiMessage> m_guiMessages;
 	int field_24;
@@ -67,13 +106,14 @@ public:
 	int field_2C;
 	Random m_random;
 	Minecraft* m_pMinecraft;
-	int field_9FC;
+	int m_ticks;
 	std::string field_A00;
 	int field_A18;
 	bool field_A1C;
-	float field_A20;
+	float m_tbr;
 	RenderChunk m_renderChunk;
 	bool field_A3C;
 	bool m_bRenderMessages;
+    bool m_bRenderHunger;
 };
 

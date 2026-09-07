@@ -9,7 +9,6 @@
 #include "UnifiedTurnBuild.hpp"
 #include "Multitouch.hpp"
 
-#include "common/Utils.hpp"
 #include "world/entity/Player.hpp"
 
 UnifiedTurnBuild::UnifiedTurnBuild(int a, int width, int height, float d, float e, IInputHolder* pHolder) :
@@ -18,6 +17,7 @@ UnifiedTurnBuild::UnifiedTurnBuild(int a, int width, int height, float d, float 
 	m_screenArea(-1, -1, 0, 0),
 	field_40(-1, -1, 0, 0),
 	field_58(-1, -1, 0, 0),
+	m_sneakExclude(-1, -1, 0, 0),
 	m_pInputHolder(pHolder),
 	field_78(0.0f),
 	field_7C(0.0f),
@@ -49,12 +49,34 @@ void UnifiedTurnBuild::setScreenSize(int width, int height)
 	m_includeExcludeArea.include(&m_screenArea);
 	m_includeExcludeArea.exclude(&field_40);
 	m_includeExcludeArea.exclude(&field_58);
+	m_includeExcludeArea.exclude(&m_sneakExclude);
 
 	m_touchAreaModel.clear();
 	m_touchAreaModel.addArea(100, &m_includeExcludeArea);
 }
 
-TurnDelta UnifiedTurnBuild::getTurnDelta()
+static float stepToward(float current, float target)
+{
+	if (target < current)
+	{
+		float r = current - 0.04f;
+		if (r > 1.0f) return 1.0f;
+		if (r > target) return r;
+		return target;
+	}
+	if (target > current)
+	{
+		float r = current + 0.02f;
+		if (r <= target)
+		{
+			if (r > 0.0f) return r;
+		}
+		return target;
+	}
+	return current;
+}
+
+Vec2 UnifiedTurnBuild::getTurnDelta()
 {
 	double timeS = getTimeS();
 
@@ -110,7 +132,7 @@ TurnDelta UnifiedTurnBuild::getTurnDelta()
 			xd = field_C4 * linearTransform(m1 - field_78, 0.0f, 1.0f, false);
 			yd = field_C4 * linearTransform(m2 - field_7C, 0.0f, 1.0f, false);
 
-			float c3 = abs(xd) * abs(yd);
+			float c3 = fabsf(xd) * fabsf(yd);
 			if (field_C0 < c3)
 				c3 = yd = xd = 0.0f;
 
@@ -141,17 +163,17 @@ TurnDelta UnifiedTurnBuild::getTurnDelta()
 
 	if (field_D4)
 	{
-		// Yes, again, this is what IDA gave me. It was either a switch that the compiler
-		// for some reason forgot to optimize into a jump table, or was actually an if chain.
-		// I believe it's the latter though because the build I'm reversing (0.1.1j) is unoptimized)
 		if (field_D8 == 1)
-			m_pInputHolder->m_feedbackAlpha = m_smoothFloat.getNewDeltaValue((timeS - field_B8) / 0.4f, 0.05f);
+		{
+			float t = (timeS - field_B8) / 0.4f;
+			m_pInputHolder->m_feedbackAlpha = t * t;
+		}
 		else if (field_D8 == 3)
-			m_pInputHolder->m_feedbackAlpha = m_smoothFloat.getNewDeltaValue(1.0f, 0.25f);
+			m_pInputHolder->m_feedbackAlpha = stepToward(m_pInputHolder->m_feedbackAlpha, 1.0f);
 		else if (field_D8 == 2)
-			m_pInputHolder->m_feedbackAlpha = m_smoothFloat.getNewDeltaValue(-0.05f, 0.5f);
+			m_pInputHolder->m_feedbackAlpha = stepToward(m_pInputHolder->m_feedbackAlpha, 0.0f);
 		else if (field_D8 == 0)
-			m_pInputHolder->m_feedbackAlpha = m_smoothFloat.getNewDeltaValue(-0.05f, 0.5f);
+			m_pInputHolder->m_feedbackAlpha = stepToward(m_pInputHolder->m_feedbackAlpha, 0.0f);
 	}
 	else
 	{
@@ -160,7 +182,7 @@ TurnDelta UnifiedTurnBuild::getTurnDelta()
 
 	m_bWasTouched = touched;
 
-	return TurnDelta(xd, -yd);
+	return Vec2(xd, -yd);
 }
 
 bool UnifiedTurnBuild::smoothTurning()
@@ -182,7 +204,8 @@ bool UnifiedTurnBuild::tickBuild(Player* pPlayer, BuildActionIntention* pIntenti
 			intent = BuildActionIntention::INTERACT;
 			wroteIntention = true;
 		}
-		else */if (field_24 /* && pPlayer->isUsingItem()*/) // Holds off on acknowledging interact intent until the user is absolutely sure a tick later
+		// Holds off on acknowledging interact intent until the user is absolutely sure a tick later
+		else */if (field_24 /*&& pPlayer->isUsingItem()*/) // Adding pPlayer->isUsingItem() makes player break blocks way too fast when not holding items
 		{
 			intent = BuildActionIntention::TOUCH_HOLD_CONTINUE;
 			wroteIntention = true;

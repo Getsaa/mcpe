@@ -1,16 +1,25 @@
 #include "GrassColor.hpp"
+#include "compat/EndianDefinitions.h"
+#include "client/resources/Resource.hpp"
 
 bool GrassColor::_isAvailable = false;
 
-Texture GrassColor::texture;
+TextureData GrassColor::texture;
 
-void GrassColor::init(Texture texture)
+void GrassColor::init()
 {
-	GrassColor::texture = texture;
+	GrassColor::texture = Resource::loadTexture("misc/grasscolor.png");
 }
 
-uint32_t GrassColor::get(double x, double y)
+uint32_t GrassColor::get(float x, float y)
 {
 	y *= x;
-	return GrassColor::texture.m_pixels[(int)((1.0 - y) * 255.0) << 8 | (int)((1.0 - x) * 255.0)];
+	uint32_t c = GrassColor::texture.getData()[(int)((1.0f - y) * 255.0f) << 8 | (int)((1.0f - x) * 255.0f)];
+	
+#if MC_ENDIANNESS_BIG
+	uint8_t r = c & 0xFF, g = (c >> 8) & 0xFF, b = (c >> 16) & 0xFF, a = (c >> 24) & 0xFF;
+	c = a | (b << 8) | (g << 16) | (r << 24);
+#endif
+	
+	return c;
 }

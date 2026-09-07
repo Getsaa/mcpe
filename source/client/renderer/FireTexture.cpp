@@ -6,6 +6,7 @@
 	SPDX-License-Identifier: BSD-1-Clause
  ********************************************************************/
 
+#include <cstring>
 #include "DynamicTexture.hpp"
 #include "world/tile/Tile.hpp"
 
@@ -15,12 +16,14 @@ FireTexture::FireTexture(int a2) : DynamicTexture(Tile::fire->m_TextureFrame + 1
 {
 	m_data1 = new float[320];
 	m_data2 = new float[320];
+	memset(m_data1, 0, sizeof(float) * 320);
+	memset(m_data2, 0, sizeof(float) * 320);
 }
 
 FireTexture::~FireTexture()
 {
-	SAFE_DELETE(m_data1);
-	SAFE_DELETE(m_data2);
+	SAFE_DELETE_ARRAY(m_data1);
+	SAFE_DELETE_ARRAY(m_data2);
 }
 
 void FireTexture::tick()

@@ -8,32 +8,57 @@
 
 #pragma once
 
-#include "world/item/ItemInstance.hpp"
+#include "client/app/AppPlatformListener.hpp"
+#include "client/renderer/renderer/EntityShaderManager.hpp"
+#include "world/item/ItemStack.hpp"
 #include "TileRenderer.hpp"
 
 class Minecraft;
 
-class ItemInHandRenderer
+class ItemInHandRenderer : public EntityShaderManager, public AppPlatformListener
 {
+private:
+	static ItemStack stick;
+
+protected:
+	class Materials
+	{
+	public:
+		mce::MaterialPtr entity;
+		mce::MaterialPtr entity_alphatest;
+		mce::MaterialPtr item_in_hand;
+		mce::MaterialPtr item_in_hand_color;
+		mce::MaterialPtr item_in_hand_ccolor;
+		mce::MaterialPtr entity_glint;
+		mce::MaterialPtr entity_alphatest_glint;
+		mce::MaterialPtr item_in_hand_glint;
+
+		Materials();
+	};
+
 public:
 	ItemInHandRenderer(Minecraft* pMC);
 	void itemPlaced();
 	void itemUsed();
-	void render(float f);
-	void renderItem(ItemInstance*);
-	void renderScreenEffect(float f);
-	void renderFire(float f);
-	void renderTex(float f, int tex);
+	void render(float a);
+	void renderItem(const Entity& entity, const ItemStack& item, float a, bool preshade = false);
+	void renderScreenEffect(float a);
+	void renderWater(float a);
+	void renderFire(float a);
+	void renderTex(float a, int tex);
 	void tick();
-	void turn(const Vec2& rot);
+	void turn(const Rot2& rot);
+
+	Color getOverlayColor(const Entity& entity, float a) const override;
 
 private:
 	int m_lastSlot;
-	ItemInstance m_selectedItem;
+	ItemStack m_selectedItem;
 	Minecraft* m_pMinecraft;
 	int field_18;
 	float m_height;
 	float m_oHeight;
 	TileRenderer m_tileRenderer;
+	Materials m_materials;
 };
 

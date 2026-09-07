@@ -170,49 +170,59 @@ bool AABB::intersect(const AABB& other) const
 		&& min.z < other.max.z;
 }
 
-void AABB::move(const Vec3& vec)
+AABB& AABB::move(const Vec3& vec)
 {
 	min += vec;
 	max += vec;
+
+	return *this;
 }
 
-void AABB::move(float x, float y, float z)
+AABB& AABB::move(float x, float y, float z)
 {
-	move(Vec3(x, y, z));
+	return move(Vec3(x, y, z));
 }
 
 // same thing
-void AABB::grow(const Vec3& vec)
+AABB& AABB::grow(const Vec3& vec)
 {
 	min -= vec;
 	max += vec;
+
+	return *this;
 }
 
-void AABB::grow(float x, float y, float z)
+AABB& AABB::grow(float x, float y, float z)
 {
 	grow(Vec3(x, y, z));
+
+	return *this;
 }
 
 // same thing
-void AABB::grow(float x)
+AABB& AABB::grow(float x)
 {
 	min -= Vec3(x, x, x);
 	max += Vec3(x, x, x);
+
+	return *this;
 }
 
-void AABB::expand(float x, float y, float z)
+AABB& AABB::expand(float x, float y, float z)
 {
-	if (x < 0) min.x += x;
-	if (x > 0) max.x += x;
-	if (y < 0) min.y += y;
-	if (y > 0) max.y += y;
-	if (z < 0) min.z += z;
-	if (z > 0) max.z += z;
+	return expand(Vec3(x, y, z));
 }
 
-void AABB::expand(const Vec3& vec)
+AABB& AABB::expand(const Vec3& vec)
 {
-	expand(vec.x, vec.y, vec.z);
+	if (vec.x < 0) min.x += vec.x;
+	if (vec.x > 0) max.x += vec.x;
+	if (vec.y < 0) min.y += vec.y;
+	if (vec.y > 0) max.y += vec.y;
+	if (vec.z < 0) min.z += vec.z;
+	if (vec.z > 0) max.z += vec.z;
+
+	return *this;
 }
 
 bool AABB::contains(const Vec3& v) const

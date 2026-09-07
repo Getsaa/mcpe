@@ -7,10 +7,16 @@
  ********************************************************************/
 
 #include "Entity.hpp"
-#include "Player.hpp"
+
+#include "common/Logger.hpp"
+#include "nbt/CompoundTag.hpp"
 #include "world/level/Level.hpp"
+#include "world/level/TileSource.hpp"
+
+#include "Player.hpp"
 
 #define TOTAL_AIR_SUPPLY (300)
+#define DATA_SHARED_FLAGS_ID (0)
 
 int Entity::entityCounter;
 Random Entity::sharedRandom;
@@ -18,62 +24,120 @@ Random Entity::sharedRandom;
 void Entity::_init()
 {
 	m_bInAChunk = false;
-	m_chunkPos = ChunkPos(0, 0);
-	field_20 = 0;
-	field_24 = 0;
-	field_28 = 0;
-	field_30 = 1.0f;
+	m_viewScale = 1.0f;
+	m_dimensionId = DIMENSION_OVERWORLD;
+	m_riderId = 0;
+	m_ridingId = 0;
+	m_bRiding = false;
     m_bBlocksBuilding = false;
 	m_pLevel = nullptr;
-	m_rot = Vec2::ZERO;
-	m_rotPrev = Vec2::ZERO;
-	m_onGround = false;
+	m_tintColor = Color::WHITE;
+	m_bOnGround = false;
 	m_bHorizontalCollision = false;
-	field_7E = false;
-	field_7F = false;
+	m_bCollision = false;
+	m_bVerticalCollision = false;
 	m_bHurt = false;
-	field_81 = 1;
+	m_bIsInWeb = false;
+	m_bSlide = 1;
 	m_bRemoved = false;
+	m_bIsInvisible = false;
+	m_bForceRemove = false;
 	m_heightOffset = 0.0f;
 	m_bbWidth = 0.6f;
 	m_bbHeight = 1.8f;
-	field_90 = 0.0f;
+	m_walkDistO = 0.0f;
 	m_walkDist = 0.0f;
 	m_bMakeStepSound = true;
 	m_ySlideOffset = 0.0f;
-	field_A8 = 0.0f;
+	m_footSize = 0.0f;
 	m_bNoPhysics = false;
-	field_B0 = 0.0f;
+	m_pushthrough = 0.0f;
     m_tickCount = 0;
-	field_B8 = 0;
+	m_invulnerableTime = 0;
 	m_airCapacity = TOTAL_AIR_SUPPLY;
 	m_fireTicks = 0;
 	m_flameTime = 1;
     m_tickCount = 0;
-	field_C8 = 0;  // @NOTE: Render type? (eEntityRenderType)
+	m_renderType = RENDER_NONE;
 	m_distanceFallen = 0.0f;
 	m_airSupply = TOTAL_AIR_SUPPLY;
-	field_D4 = 0;
-	field_D5 = false;
-	field_D6 = true;
+	m_bWasInWater = false;
+	m_bFireImmune = false;
+	m_bFirstTick = true;
 	m_nextStep = 1;
-	m_entityData = SynchedEntityData();
+	m_minBrightness = 0.0f;
 	m_pDescriptor = &EntityTypeDescriptor::unknown;
+	m_pTileSource = nullptr;
+	m_bCanBeDeleted = true;
 }
 
-Entity::Entity(Level* pLevel)
+Entity::Entity(TileSource& tileSource)
 {
 	_init();
 
-	m_pLevel = pLevel;
+	m_pTileSource = &tileSource;
+	m_pLevel = &tileSource.getLevel();
+
 	m_EntityID = ++entityCounter;
 	setPos(Vec3::ZERO);
 
-	m_entityData.define<int8_t>(0, 0);
+	m_entityData.define<SharedFlag>(DATA_SHARED_FLAGS_ID, 0);
 }
 
 Entity::~Entity()
 {
+	m_entityData.clear();
+}
+
+bool Entity::getSharedFlag(SharedFlag flag) const
+{
+	return (getEntityData().get<int8_t>(DATA_SHARED_FLAGS_ID) & 1 << flag) != 0;
+}
+
+void Entity::setSharedFlag(SharedFlag flag, bool value)
+{
+	SynchedEntityData& entityData = getEntityData();
+	int8_t var3 = entityData.get<int8_t>(DATA_SHARED_FLAGS_ID);
+	if (value)
+	{
+		entityData.set(DATA_SHARED_FLAGS_ID, (int8_t)(var3 | 1 << flag));
+	}
+	else
+	{
+		entityData.set(DATA_SHARED_FLAGS_ID, (int8_t)(var3 & ~(1 << flag)));
+	}
+}
+
+// @PARITY
+#if MC_PLATFORM_MOBILE
+// 0.35f on 0.1.3, 0.25f on 0.2.1+
+#define C_STEP_SOUND_VOLUME_SCALE 0.25f
+#else
+// Use Java value for everything else
+#define C_STEP_SOUND_VOLUME_SCALE 0.15f
+#endif
+
+void Entity::playStepSound(const TilePos& pos, TileID tileId)
+{
+	TileSource& source = getTileSource();
+
+	Tile* pTile = Tile::tiles[tileId];
+	const Tile::SoundType* sound = nullptr;
+	if (source.getTile(pos.above()) == Tile::topSnow->m_ID)
+	{
+		sound = Tile::topSnow->m_pSound;
+	}
+	else if (!pTile->m_pMaterial->isLiquid())
+	{
+		sound = pTile->m_pSound;
+	}
+
+	if (sound != nullptr)
+	{
+		m_pLevel->playSound(this, "step." + sound->name, sound->volume * C_STEP_SOUND_VOLUME_SCALE, sound->pitch);
+	}
+
+	pTile->stepOn(source, pos, this);
 }
 
 void Entity::setLevel(Level* pLvl)
@@ -84,6 +148,11 @@ void Entity::setLevel(Level* pLvl)
 void Entity::removed()
 {
 	m_bRemoved = true;
+}
+
+const Vec3& Entity::getPos() const
+{
+	return m_pos;
 }
 
 void Entity::setPos(const Vec3& pos)
@@ -107,400 +176,207 @@ void Entity::remove()
 	m_bRemoved = true;
 }
 
-int Entity::move(const Vec3& pos)
+void Entity::move(const Vec3& pos)
 {
-	float x_1 = pos.x, z_1 = pos.z;
-
 	if (m_bNoPhysics)
 	{
-		// just move it. Don't perform any kind of collision
-		m_hitbox.min += pos;
-		m_hitbox.max += pos;
-
-		m_pos.x = (m_hitbox.max.x + m_hitbox.min.x) / 2;
-		m_pos.z = (m_hitbox.max.z + m_hitbox.min.z) / 2;
+		m_hitbox.move(pos);
+		m_pos.x = (m_hitbox.min.x + m_hitbox.max.x) / 2.0f;
 		m_pos.y = m_hitbox.min.y + m_heightOffset - m_ySlideOffset;
-
-		return 1300;
-	}
-
-	//@TODO: untangle the control flow
-
-	float x1, x2, x3, x4, x5, x6;
-	float x7, x8, x9, x10, x11, x12, x20;
-	float x_2, z_2, x_3, z_3;
-	float oldX, oldZ;
-	bool b1, b2, b3, b4, b5, b6;
-	AABB hitold;
-
-    oldX = m_pos.x; oldZ = m_pos.z;
-
-	x7 = m_hitbox.max.z;
-	x8 = m_hitbox.max.y;
-	x9 = m_hitbox.max.x;
-	x10 = m_hitbox.min.z;
-	x11 = m_hitbox.min.y;
-	x12 = m_hitbox.min.x;
-
-	x1 = m_hitbox.max.z;
-	x2 = m_hitbox.max.y;
-	x3 = m_hitbox.max.x;
-	x4 = m_hitbox.min.z;
-	x5 = m_hitbox.min.y;
-	x6 = m_hitbox.min.x;
-
-	if (!m_onGround)
-	{
-	label_4:
-
-		z_2 = z_1;
-		b1 = x_1 < 0.0f;
-		b2 = x_1 > 0.0f;
-		x_2 = x_1;
-		b3 = z_1 < 0.0f;
-		b4 = z_1 > 0.0f;
-		b5 = false;
-		goto label_5;
-	}
-
-	if (!isSneaking())
-		goto label_4;
-
-	if (x_1 == 0.0f)
-	{
-		x_2 = x_1;
-		b1 = x_1 < 0.0f;
-		b2 = x_1 > 0.0f;
+		m_pos.z = (m_hitbox.min.z + m_hitbox.max.z) / 2.0f;
 	}
 	else
 	{
-		x_2 = x_1;
-		do
+		m_ySlideOffset *= 0.4f;
+		Vec3 newPos(pos);
+		if (m_bIsInWeb)
 		{
-			AABB aabb = m_hitbox;
-			aabb.move(x_1, -1.0f, 0);
-
-			AABBVector* cubes = m_pLevel->getCubes(this, aabb);
-
-			if (cubes->size())
-				break;
-
-			if (x_1 < 0.05f && x_1 >= -0.05f)
-			{
-				x_2 = 0.0f;
-				x_1 = 0.0f;
-				break;
-			}
-
-			// @BUG: See the z_1 part
-			if (x_1 <= 0.0f)
-				x_1 = x_1 + 0.05f;
-			else
-				x_1 = x_1 - 0.05f;
-
-			x_2 = x_1;
-		} while (x_1 != 0.0f);
-
-		b1 = x_1 < 0.0f;
-		b2 = x_1 > 0.0f;
-	}
-
-	if (z_1 == 0.0f)
-	{
-		z_2 = z_1;
-		b3 = z_1 < 0.0f;
-		b4 = z_1 > 0.0f;
-	}
-	else
-	{
-		z_2 = z_1;
-		do
-		{
-			AABB aabb = m_hitbox;
-			aabb.move(0, -1.0f, z_1);
-
-			AABBVector* cubes = m_pLevel->getCubes(this, aabb);
-
-			if (cubes->size())
-				break;
-
-			if (z_1 < 0.05f && z_1 >= -0.05f)
-			{
-				z_2 = 0.0f;
-				z_1 = 0.0f;
-				break;
-			}
-
-			//@BUG: wouldn't this loop forever? Since if z_1 == 0.025f, it'd oscillate between -0.025f and +0.025f...
-			if (z_1 <= 0.0f)
-				z_1 = z_1 + 0.05f;
-			else
-				z_1 = z_1 - 0.05f;
-		} while (z_1 != 0.0f);
-		b3 = z_1 < 0.0f;
-		b4 = z_1 > 0.0f;
-	}
-
-	b5 = true;
-
-label_5:
-	if (b1) x6 += x_1;
-	if (b2) x3 += x_1;
-	if (pos.y < 0.0f) x5 += pos.y;
-	if (pos.y > 0.0f) x2 += pos.y;
-	if (b3) x4 += pos.z;
-	if (b4) x1 += pos.z;
-
-	AABB scanAABB(x6, x5, x4, x3, x2, x1);
-	AABBVector* pCubes = m_pLevel->getCubes(this, scanAABB);
-
-	float newY = pos.y;
-	for (int i = 0; i < pCubes->size(); i++)
-	{
-		const AABB& aabb = pCubes->at(i);
-		newY = aabb.clipYCollide(m_hitbox, newY);
-	}
-
-	m_hitbox.move(0, newY, 0);
-
-	if (!field_81 && newY != pos.y)
-	{
-		z_1 = 0.0f;
-		x_1 = 0.0f;
-		newY = 0.0f;
-	}
-
-	if (m_onGround)
-	{
-		b6 = true;
-	}
-	else
-	{
-		b6 = pos.y < 0.0f;
-		if (newY == pos.y)
-			b6 = 0;
-	}
-
-	for (int i = 0; i < pCubes->size(); i++)
-	{
-		const AABB& aabb = pCubes->at(i);
-		x_1 = aabb.clipXCollide(m_hitbox, x_1);
-	}
-
-	m_hitbox.move(x_1, 0, 0);
-
-	if (!field_81 && x_1 != x_2)
-	{
-		z_1 = 0.0f;
-		x_1 = 0.0f;
-		newY = 0.0f;
-	}
-
-	for (int i = 0; i < pCubes->size(); i++)
-	{
-		const AABB& aabb = pCubes->at(i);
-		z_1 = aabb.clipZCollide(m_hitbox, z_1);
-	}
-
-	m_hitbox.move(0, 0, z_1);
-
-	if (!field_81 && z_1 != z_2)
-	{
-		z_1 = 0.0f;
-		x_1 = 0.0f;
-		newY = 0.0f;
-	}
-
-	x20 = field_A8;
-	if (x20 <= 0.0f || !b6)
-	{
-	label_44:
-		z_3 = z_1;
-		x_3 = x_1;
-		goto label_45;
-	}
-
-    if (m_ySlideOffset >= 0.05f || (x_2 == x_1 && z_2 == z_1))
-		goto label_44;
-
-	// oh come on, undoing all our work??
-	hitold = m_hitbox;
-	m_hitbox = AABB(x12, x11, x10, x9, x8, x7);
-
-	if (b1) x12 += x_2;
-	if (b2) x9 += x_2;
-	x8 += x20; //@BUG: missing if (x20 > 0) check?
-	if (x20 < 0.0f) x11 += x20;
-	if (b3) x10 += z_2;
-	if (b4) x7 += z_2;
-
-	{
-		AABB scanAABB2(x12, x11, x10, x9, x8, x7);
-
-		//@BUG: useless copy
-		//@BUG: this doesn't actually copy anything
-		*pCubes = *m_pLevel->getCubes(this, scanAABB2);
-	}
-
-	for (int i = 0; i < pCubes->size(); i++)
-	{
-		const AABB& aabb = pCubes->at(i);
-		x20 = aabb.clipYCollide(m_hitbox, x20);
-	}
-
-	m_hitbox.move(0, x20, 0);
-
-	if (field_81 || x20 == pos.y)
-	{
-		z_3 = z_2;
-		x_3 = x_2;
-	}
-	else
-	{
-		x20 = 0.0f;
-		z_3 = 0.0f;
-		x_3 = 0.0f;
-	}
-
-	for (int i = 0; i < pCubes->size(); i++)
-	{
-		const AABB& aabb = pCubes->at(i);
-		x_3 = aabb.clipXCollide(m_hitbox, x_3);
-	}
-
-	m_hitbox.move(x_3, 0, 0);
-
-	if (!field_81 && x_2 != x_3)
-	{
-		x20 = 0.0f;
-		z_3 = 0.0f;
-		x_3 = 0.0f;
-	}
-
-	for (int i = 0; i < pCubes->size(); i++)
-	{
-		const AABB& aabb = pCubes->at(i);
-		z_3 = aabb.clipZCollide(m_hitbox, z_3);
-	}
-
-	m_hitbox.move(0, 0, z_3);
-
-	if (!field_81 && z_2 != z_3)
-	{
-		x20 = 0.0f;
-		z_3 = 0.0f;
-		x_3 = 0.0f;
-	}
-
-	// if we moved more this time than before?? no clue wtf this is about...
-	if (z_1 * z_1 + x_1 * x_1 < z_3 * z_3 + x_3 * x_3)
-	{
-		m_ySlideOffset += 0.5f;
-		newY = x20;
-	}
-	else
-	{
-		// don't get the rationale behind this at all...
-		m_hitbox = hitold;
-		z_3 = z_1;
-		x_3 = x_1;
-	}
-
-label_45:
-	m_pos.x = (m_hitbox.min.x + m_hitbox.max.x) / 2;
-	m_pos.z = (m_hitbox.min.z + m_hitbox.max.z) / 2;
-	m_pos.y = m_hitbox.min.y - m_ySlideOffset + m_heightOffset;
-
-	m_bHorizontalCollision = x_2 != x_3 || z_2 != z_3;
-	field_7F = m_bHorizontalCollision || newY != pos.y;
-	m_onGround = pos.y < 0.0f && newY != pos.y;
-	field_7E = newY != pos.y;
-
-	checkFallDamage(newY, m_onGround);
-
-	if (x_2 != x_3) m_vel.x = 0.0;
-	if (newY != pos.y)  m_vel.y = 0.0;
-	if (z_2 != z_3) m_vel.z = 0.0;
-
-	if (m_bMakeStepSound && !b5) // !(m_onGround && isSneaking())
-	{
-		float diffX = (m_pos.x - oldX), diffZ = (m_pos.z - oldZ);
-		m_walkDist += Mth::sqrt(diffZ * diffZ + diffX * diffX) * 0.6f;
-
-		TilePos tilePos(Mth::floor(m_pos.x),
-						Mth::floor(m_pos.y - 0.2f - m_heightOffset),
-						Mth::floor(m_pos.z));
-
-		TileID tileID = m_pLevel->getTile(tilePos);
-
-		if (tileID > 0 && m_walkDist > float(m_nextStep))
-		{
-			++m_nextStep;
-			bool bPlaySound = true;
-
-			const Tile::SoundType *sound = Tile::tiles[tileID]->m_pSound;
-			/*if (!isPlayer()) // no idea why this wasn't already a thing
-				bPlaySound = false;*/
-			if (m_pLevel->getTile(tilePos.above()) == Tile::topSnow->m_ID)
-				sound = Tile::topSnow->m_pSound;
-			else if (Tile::tiles[tileID]->m_pMaterial->isLiquid())
-				bPlaySound = false;
-
-			if (bPlaySound)
-				m_pLevel->playSound(this, "step." + sound->m_name, sound->volume * 0.15f, sound->pitch);
-
-			Tile::tiles[tileID]->stepOn(m_pLevel, tilePos, this);
+			m_bIsInWeb = false;
+			newPos.x *= 0.25f;
+			newPos.y *= 0.05f;
+			newPos.z *= 0.25f;
+			m_vel = Vec3::ZERO;
+			m_distanceFallen = 0.0f;
 		}
-	}
+		float aPosX = m_pos.x;
+		float aPosZ = m_pos.z;
+		float cPosX = newPos.x;
+		float cPosY = newPos.y;
+		float cPosZ = newPos.z;
+		AABB lastHit = m_hitbox;
+		bool validSneaking = m_bOnGround && isSneaking();
+		if (validSneaking)
+		{
+			for (float dx = 0.05f; newPos.x != 0.0f && m_pTileSource->fetchAABBs(AABB(m_hitbox).move(newPos.x, -1.0f, 0.0f), true).size() == 0; cPosX = newPos.x)
+			{
+				if (newPos.x < dx && newPos.x >= -dx)
+					newPos.x = 0.0;
+				else if (newPos.x > 0.0f)
+					newPos.x -= dx;
+				else
+					newPos.x += dx;
+			}
 
-	// Check whether the entity is inside of any tiles.
+			for (float dz = 0.05f; newPos.z != 0.0f && m_pTileSource->fetchAABBs(AABB(m_hitbox).move(0.0f, -1.0f, newPos.z), true).size() == 0; cPosZ = newPos.z)
+			{
+				if (newPos.z < dz && newPos.z >= -dz)
+					newPos.z = 0.0f;
+				else if (newPos.z > 0.0f)
+					newPos.z -= dz;
+				else
+					newPos.z += dz;
+			}
+		}
 
-	TilePos minPos(m_hitbox.min);
-	TilePos maxPos(m_hitbox.max);
-	TilePos tilePos = TilePos();
+		std::vector<AABB>& cubes = m_pTileSource->fetchAABBs(AABB(m_hitbox).expand(newPos.x, newPos.y, newPos.z), true);
 
-	if (m_pLevel->hasChunksAt(TilePos(m_hitbox.min), TilePos(m_hitbox.max)))
-	{
-		for (tilePos.x = minPos.x; tilePos.x <= maxPos.x; tilePos.x++)
-			for (tilePos.y = minPos.y; tilePos.y <= maxPos.y; tilePos.y++)
-				for (tilePos.z = minPos.z; tilePos.z <= maxPos.z; tilePos.z++)
-				{
-					TileID tileID = m_pLevel->getTile(tilePos);
-					if (tileID > 0)
-						Tile::tiles[tileID]->entityInside(m_pLevel, tilePos, this);
-				}
-	}
+		for (size_t i = 0; i < cubes.size(); ++i)
+			newPos.y = cubes.at(i).clipYCollide(m_hitbox, newPos.y);
 
-	m_ySlideOffset *= 0.4f;
+		m_hitbox.move(0.0f, newPos.y, 0.0f);
+		if (!m_bSlide && cPosY != newPos.y)
+			newPos = Vec3::ZERO;
 
-	bool bIsInWater = isInWater();
+		bool lastsOnGround = m_bOnGround || (cPosY != newPos.y && cPosY < 0.0);
 
-	if (m_pLevel->containsFireTile(m_hitbox))
-	{
-		burn(1);
+		for (size_t i = 0; i < cubes.size(); ++i)
+			newPos.x = cubes.at(i).clipXCollide(m_hitbox, newPos.x);
+	
+		m_hitbox.move(newPos.x, 0.0f, 0.0f);
+		if (!m_bSlide && cPosX != newPos.x)
+			newPos = Vec3::ZERO;
 
-		if (!bIsInWater) {
-			if (m_fireTicks == 0)
-				m_fireTicks = 300;
+		for (size_t i = 0; i < cubes.size(); ++i)
+			newPos.z = cubes.at(i).clipZCollide(m_hitbox, newPos.z);
+
+		m_hitbox.move(0.0f, 0.0f, newPos.z);
+		if (!m_bSlide && cPosZ != newPos.z)
+			newPos = Vec3::ZERO;
+
+		if (m_footSize > 0.0f && lastsOnGround && m_ySlideOffset < 0.05F && (cPosX != newPos.x || cPosZ != newPos.z))
+		{
+			Vec3 oldPos = newPos;
+			newPos.x = cPosX;
+			newPos.y = m_footSize;
+			newPos.z = cPosZ;
+			AABB oldHit = m_hitbox;
+			m_hitbox = lastHit;
+			cubes = m_pTileSource->fetchAABBs(AABB(m_hitbox).expand(cPosX, newPos.y, cPosZ), true);
+
+			for (size_t i = 0; i < cubes.size(); ++i)
+				newPos.y = cubes.at(i).clipYCollide(m_hitbox, newPos.y);
+
+			m_hitbox.move(0.0f, newPos.y, 0.0f);
+			if (!m_bSlide && cPosY != newPos.y)
+				newPos = Vec3::ZERO;
+
+			for (size_t i = 0; i < cubes.size(); ++i)
+				newPos.x = cubes.at(i).clipXCollide(m_hitbox, newPos.x);
+
+			m_hitbox.move(newPos.x, 0.0f, 0.0f);
+			if (!m_bSlide && cPosX != newPos.x)
+				newPos = Vec3::ZERO;
+
+			for (size_t i = 0; i < cubes.size(); ++i)
+				newPos.z = cubes.at(i).clipZCollide(m_hitbox, newPos.z);
+
+			m_hitbox.move(0.0f, 0.0f, newPos.z);
+			if (!m_bSlide && cPosZ != newPos.z)
+				newPos = Vec3::ZERO;
+
+			if (oldPos.x * oldPos.x + oldPos.z * oldPos.z >= newPos.x * newPos.x + newPos.z * newPos.z)
+			{
+				newPos = oldPos;
+				m_hitbox = oldHit;
+			}
 			else
+			{
+				float hitYOff = m_hitbox.min.y - int(m_hitbox.min.y);
+				if (hitYOff > 0.0f)
+					m_ySlideOffset = m_ySlideOffset + hitYOff + 0.01f;
+			}
+		}
+
+		m_pos.x = (m_hitbox.min.x + m_hitbox.max.x) / 2.0f;
+		m_pos.y = m_hitbox.min.y + m_heightOffset - m_ySlideOffset;
+		m_pos.z = (m_hitbox.min.z + m_hitbox.max.z) / 2.0f;
+		m_bHorizontalCollision = cPosX != newPos.x || cPosZ != newPos.z;
+		m_bVerticalCollision = cPosY != newPos.y;
+		m_bOnGround = cPosY != newPos.y && cPosY < 0.0f;
+		m_bCollision = m_bHorizontalCollision || m_bVerticalCollision;
+		checkFallDamage(newPos.y, m_bOnGround);
+		if (cPosX != newPos.x)
+			m_vel.x = 0.0f;
+
+		if (cPosY != newPos.y)
+			m_vel.y = 0.0f;
+
+		if (cPosZ != newPos.z)
+			m_vel.z = 0.0f;
+
+		float diffX = m_pos.x - aPosX;
+		float diffZ = m_pos.z - aPosZ;
+		if (m_bMakeStepSound && !validSneaking)
+		{
+			m_walkDist = float(m_walkDist + Mth::sqrt(diffX * diffX + diffZ * diffZ) * 0.6f);
+			TilePos tp(m_pos.x, m_pos.y - 0.2f - m_heightOffset, m_pos.z);
+			TileID tileId = m_pTileSource->getTile(tp);
+
+			if (m_pTileSource->getTile(tp.below()) == Tile::fence->m_ID)
+				tileId = Tile::fence->m_ID;
+
+			if (m_walkDist > m_nextStep && tileId > 0)
+			{
+				m_nextStep = (int)m_walkDist + 1;
+
+				playStepSound(tp, tileId);
+			}
+		}
+
+		TilePos minPos(m_hitbox.min + 0.001f);
+		TilePos maxPos(m_hitbox.max - 0.001f);
+		TilePos tilePos;
+
+		if (m_pTileSource->hasChunksAt(minPos, TilePos(maxPos)))
+		{
+			for (tilePos.x = minPos.x; tilePos.x <= maxPos.x; tilePos.x++)
+				for (tilePos.y = minPos.y; tilePos.y <= maxPos.y; tilePos.y++)
+					for (tilePos.z = minPos.z; tilePos.z <= maxPos.z; tilePos.z++)
+					{
+						TileID tileID = m_pTileSource->getTile(tilePos);
+						if (tileID > 0)
+							Tile::tiles[tileID]->entityInside(*m_pTileSource, tilePos, this);
+					}
+		}
+
+		bool bIsInWater = isInWater();
+
+		if (m_pTileSource->containsFireTile(AABB(minPos, maxPos)))
+		{
+			burn(1);
+
+			if (!bIsInWater)
+			{
 				m_fireTicks++;
+				if (m_fireTicks == 0)
+					m_fireTicks = 300;
+			}
 		}
-	}
-	else if (m_fireTicks <= 0)
-	{
-		m_fireTicks = -m_flameTime;
-	}
+		else if (m_fireTicks <= 0)
+		{
+			m_fireTicks = -m_flameTime;
+		}
 
-	if (bIsInWater && m_fireTicks > 0)
-	{
-		m_pLevel->playSound(this, "random.fizz", 0.7f, 1.6f + (sharedRandom.nextFloat() - sharedRandom.nextFloat()) * 0.4f);
-		m_fireTicks = -m_flameTime;
-	}
+		if (bIsInWater && m_fireTicks > 0)
+		{
+			m_pLevel->playSound(this, "random.fizz", 0.7f, 1.6f + (sharedRandom.nextFloat() - sharedRandom.nextFloat()) * 0.4f);
+			m_fireTicks = -m_flameTime;
+		}
 
-	return 1300;
+	}
 }
 
-void Entity::moveTo(const Vec3& pos, const Vec2& rot)
+void Entity::moveTo(const Vec3& pos)
 {
 	Vec3 newPos(pos);
 	newPos.y += m_heightOffset;
@@ -508,26 +384,38 @@ void Entity::moveTo(const Vec3& pos, const Vec2& rot)
 	setPos(newPos);
 	m_oPos = newPos;
 	m_posPrev = newPos;
-
-	m_rot = rot;
 }
 
-void Entity::absMoveTo(const Vec3& pos, const Vec2& rot)
+void Entity::moveTo(const Vec3& pos, const Rot2& rot)
+{
+	moveTo(pos);
+	m_rot = rot;
+
+	// @BUG?: not set in any version, but seems like it should be
+	//m_oRot = rot;
+}
+
+void Entity::absMoveTo(const Vec3& pos)
 {
 	m_ySlideOffset = 0.0f;
 
-	m_rotPrev = rot;
-	setRot(rot);
-
 	setPos(pos);
 	m_oPos = pos;
+}
+
+void Entity::absMoveTo(const Vec3& pos, const Rot2& rot)
+{
+	absMoveTo(pos);
+
+	m_oRot = rot;
+	setRot(rot);
 
 	// This looks like a rebounding check for the angle
-	float dyRot = (m_rotPrev.y - m_rot.y);
+	float dyRot = (m_oRot.pitch - m_rot.pitch);
 	if (dyRot < -180.0f)
-		m_rotPrev.y += 360.0f;
+		m_oRot.pitch += 360.0f;
 	if (dyRot >= 180.0f)
-		m_rotPrev.y -= 360.0f;
+		m_oRot.pitch -= 360.0f;
 }
 
 void Entity::moveRelative(const Vec3& pos)
@@ -543,7 +431,7 @@ void Entity::moveRelative(const Vec3& pos)
 	vel.x *= vel.y;
 	vel.z *= vel.y;
 
-	float yaw = m_rot.x * float(M_PI);
+	float yaw = m_rot.yaw * float(M_PI);
 	float syaw = sinf(yaw / 180.0f);
 	float cyaw = cosf(yaw / 180.0f);
 
@@ -556,7 +444,7 @@ void Entity::lerpTo(const Vec3& pos)
 	setPos(pos);
 }
 
-void Entity::lerpTo(const Vec3& pos, const Vec2& rot, int p)
+void Entity::lerpTo(const Vec3& pos, const Rot2& rot, int steps)
 {
 	lerpTo(pos);
 	setRot(rot);
@@ -567,41 +455,41 @@ void Entity::lerpMotion(const Vec3& pos)
 	m_vel = pos;
 }
 
-void Entity::turn(const Vec2& rot)
+void Entity::turn(const Rot2& rot)
 {
-	if (rot == Vec2::ZERO) return;
+	if (rot == Rot2::ZERO) return;
 
-	Vec2 rotOld = m_rot;
+	Rot2 rotOld = m_rot;
 
 	interpolateTurn(rot);
 
-	m_rotPrev.x += m_rot.x - rotOld.x;
-	m_rotPrev.y += m_rot.y - rotOld.y;
+	m_oRot.yaw += m_rot.yaw - rotOld.yaw;
+	m_oRot.pitch += m_rot.pitch - rotOld.pitch;
 }
 
 void Entity::reset()
 {
 	// TODO is this it
 	m_posPrev = m_oPos = m_pos;
-	m_rotPrev = m_rot;
+	m_oRot = m_rot;
 	m_bRemoved = false;
 	m_distanceFallen = 0.0f;
-	field_D5 = false;
+	m_bFireImmune = false;
 	m_fireTicks = 0;
 }
 
-void Entity::interpolateTurn(const Vec2& rot)
+void Entity::interpolateTurn(const Rot2& rot)
 {
-	setRot(Vec2(
-		m_rot.x + rot.x * 0.15f,
-		m_rot.y - rot.y * 0.15f
+	setRot(Rot2(
+		m_rot.yaw + rot.yaw * 0.15f,
+		m_rot.pitch - rot.pitch * 0.15f
 	));
 
 	// can't rotate more than facing fully up or fully down
-	if (m_rot.y < -90.0f)
-		m_rot.y = -90.0f;
-	if (m_rot.y > 90.0f)
-		m_rot.y = 90.0f;
+	if (m_rot.pitch < -90.0f)
+		m_rot.pitch = -90.0f;
+	if (m_rot.pitch > 90.0f)
+		m_rot.pitch = 90.0f;
 }
 
 void Entity::tick()
@@ -612,14 +500,22 @@ void Entity::tick()
 void Entity::baseTick()
 {
 	//@TODO: untangle the gotos
+	if (const Entity* riding = getRiding())
+	{
+		// if you were riding an entity and they no longer exist, stop
+		if ((!riding && m_ridingId > 0) || riding->m_bRemoved)
+		{
+			setRiding(nullptr);
+		}
+	}
 
-	field_90 = m_walkDist;
+	m_walkDistO = m_walkDist;
 	m_oPos = m_pos;
     m_tickCount++;
-	m_rotPrev = m_rot;
+	m_oRot = m_rot;
 	if (isInWater())
 	{
-		if (!field_D4 && !field_D6)
+		if (!m_bWasInWater && !m_bFirstTick)
 		{
 			float dist = Mth::sqrt(m_vel.y * m_vel.y + m_vel.x * m_vel.x * 0.2f + m_vel.z * m_vel.z * 0.2f) * 0.2f;
 			if (dist > 1.0f)
@@ -664,18 +560,18 @@ void Entity::baseTick()
 			}
 		}
 
-		field_D4 = true;
+		m_bWasInWater = true;
 		m_fireTicks = 0;
 		m_distanceFallen = 0;
 
-		if (m_pLevel->m_bIsMultiplayer)
+		if (m_pLevel->m_bIsClientSide)
 			goto label_4;
 	}
 	else
 	{
-		field_D4 = false;
+		m_bWasInWater = false;
 
-		if (m_pLevel->m_bIsMultiplayer)
+		if (m_pLevel->m_bIsClientSide)
 		{
 		label_4:
 			m_fireTicks = 0;
@@ -691,7 +587,7 @@ void Entity::baseTick()
 		goto label_15;
 	}
 
-	if (field_D5)
+	if (m_bFireImmune)
 	{
 		m_fireTicks -= 4;
 		if (m_fireTicks < 0)
@@ -716,7 +612,7 @@ label_6:
 	if (m_pos.y < -64.0f)
 		outOfWorld();
 
-	field_D6 = false;
+	m_bFirstTick = false;
 }
 
 bool Entity::intersects(const Vec3& min, const Vec3& max) const
@@ -730,11 +626,7 @@ bool Entity::isFree(const Vec3& off) const
 	AABB aabb = m_hitbox;
 	aabb.move(off);
 
-	AABBVector* pCubes = m_pLevel->getCubes(this, aabb);
-	if (!pCubes)
-		return false;
-
-	return !m_pLevel->containsAnyLiquid(aabb);
+	return !m_pTileSource->containsAnyLiquid(aabb);
 }
 
 bool Entity::isFree(const Vec3& off, float expand) const
@@ -743,16 +635,12 @@ bool Entity::isFree(const Vec3& off, float expand) const
 	aabb.move(off);
 	aabb.grow(expand, expand, expand);
 
-	AABBVector* pCubes = m_pLevel->getCubes(this, aabb);
-	if (!pCubes)
-		return false;
-
-	return !m_pLevel->containsAnyLiquid(aabb);
+	return !m_pTileSource->containsAnyLiquid(aabb);
 }
 
 bool Entity::isInWall() const
 {
-	return m_pLevel->isSolidTile(TilePos(m_pos.x, m_pos.y + getHeadHeight(), m_pos.z));
+	return m_pTileSource->isSolidBlockingTile(TilePos(m_pos.x, m_pos.y + getHeadHeight(), m_pos.z));
 }
 
 bool Entity::isInWater()
@@ -766,18 +654,18 @@ bool Entity::isInLava() const
 {
 	AABB aabb = m_hitbox;
 	aabb.grow(-0.1f, -0.4f, -0.1f);
-	return m_pLevel->containsMaterial(aabb, Material::lava);
+	return m_pTileSource->containsMaterial(aabb, Material::lava);
 }
 
 bool Entity::isUnderLiquid(Material* pMtl) const
 {
 	TilePos tilePos(m_pos.x, m_pos.y + getHeadHeight(), m_pos.z);
 
-	Tile* pTile = Tile::tiles[m_pLevel->getTile(tilePos)];
+	Tile* pTile = Tile::tiles[m_pTileSource->getTile(tilePos)];
 	if (!pTile || pTile->m_pMaterial != pMtl)
 		return false;
 
-	int data = m_pLevel->getData(tilePos);
+	TileData data = m_pTileSource->getData(tilePos);
 	int level = data <= 7 ? data + 1 : 1;
 
 	return float(tilePos.y) < float(tilePos.y + 1) - (float(level) / 9.0f - 0.11111f);
@@ -790,13 +678,66 @@ float Entity::getBrightness(float f) const
 	TilePos tileMin(m_hitbox.min);
 	TilePos tileMax(m_hitbox.max);
 
-	if (!m_pLevel->hasChunksAt(tileMin, tileMax))
+	if (!m_pTileSource->hasChunksAt(tileMin, tileMax))
 		return 0;
 
-	return m_pLevel->getBrightness(tilePos);
+	return Mth::Max(m_minBrightness, m_pTileSource->getBrightness(tilePos));
 }
 
-float Entity::distanceTo(Entity* pEnt) const
+Vec3 Entity::getInterpolatedPosition(float f) const
+{
+	if (f == 1.0f)
+		return m_pos;
+
+	return Vec3(
+		Mth::Lerp(m_oPos.x, m_pos.x, f),
+		Mth::Lerp(m_oPos.y, m_pos.y, f),
+		Mth::Lerp(m_oPos.z, m_pos.z, f)
+	);
+}
+
+Rot2 Entity::getInterpolatedRotation(float f) const
+{
+	return Rot2(
+		Mth::Lerp(m_oRot.yaw,   m_rot.yaw,   f),
+		Mth::Lerp(m_oRot.pitch, m_rot.pitch, f)
+	);
+}
+
+Vec3 Entity::getViewVector(float f) const
+{
+	constexpr float C_PI = 3.1416f; // @HUH: Why not just use M_PI here?
+
+	if (f == 1.0)
+	{
+		Vec3 x(Mth::cos(-(m_rot.yaw * MTH_DEG_TO_RAD) - C_PI),
+			Mth::sin(-(m_rot.yaw * MTH_DEG_TO_RAD) - C_PI),
+			-Mth::cos(-(m_rot.pitch * MTH_DEG_TO_RAD)));
+
+		return Vec3(x.x * x.z, Mth::sin(-(m_rot.pitch * MTH_DEG_TO_RAD)), x.y * x.z);
+	}
+
+	float x1 = m_oRot.pitch + (m_rot.pitch - m_oRot.pitch) * f;
+	float x2 = -((m_oRot.yaw + (m_rot.yaw - m_oRot.yaw) * f) * MTH_DEG_TO_RAD) - C_PI;
+	float x3 = Mth::cos(x2);
+	float x4 = Mth::sin(x2);
+	float x5 = -(x1 * MTH_DEG_TO_RAD);
+	float x6 = -Mth::cos(x5);
+
+	return Vec3(x4 * x6, Mth::sin(x5), x3 * x6);
+}
+
+Entity::AuxValue Entity::getAuxValue() const
+{
+	return 0;
+}
+
+void Entity::setAuxValue(AuxValue value)
+{
+
+}
+
+float Entity::distanceTo(const Entity* pEnt) const
 {
 	return distanceTo(pEnt->m_pos);
 }
@@ -806,7 +747,7 @@ float Entity::distanceTo(const Vec3& pos) const
 	return m_pos.distanceTo(pos);
 }
 
-float Entity::distanceToSqr(Entity* pEnt) const
+float Entity::distanceToSqr(const Entity* pEnt) const
 {
 	return distanceToSqr(pEnt->m_pos);
 }
@@ -816,9 +757,9 @@ float Entity::distanceToSqr(const Vec3& pos) const
 	return m_pos.distanceToSqr(pos);
 }
 
-int Entity::interactPreventDefault()
+bool Entity::interactPreventDefault() const
 {
-	return 0;
+	return false;
 }
 
 bool Entity::interact(Player* player)
@@ -833,6 +774,9 @@ void Entity::playerTouch(Player* player)
 
 void Entity::push(Entity* bud)
 {
+	if (bud == getRider() || bud == getRiding())
+		return;
+
 	float diffX = bud->m_pos.x - m_pos.x;
 	float diffZ = bud->m_pos.z - m_pos.z;
 	float maxDiff = Mth::absMax(diffX, diffZ);
@@ -843,7 +787,7 @@ void Entity::push(Entity* bud)
 	float x2 = 1.0f / x1;
 	if (x2 > 1.0f)
 		x2 = 1.0f;
-	float x3 = 1.0f - this->field_B0;
+	float x3 = 1.0f - m_pushthrough;
 	float x4 = x3 * diffX / x1 * x2 * 0.05f;
 	float x5 = x3 * diffZ / x1 * x2 * 0.05f;
 
@@ -858,12 +802,15 @@ void Entity::push(const Vec3& pos)
 
 bool Entity::shouldRender(Vec3& camPos) const
 {
+	if (m_bIsInvisible)
+		return false;
+
 	return shouldRenderAtSqrDistance(distanceToSqr(camPos));
 }
 
 bool Entity::shouldRenderAtSqrDistance(float distSqr) const
 {
-	float maxDist = (field_30 * 64.0f) * (((m_hitbox.max.z - m_hitbox.min.z) + (m_hitbox.max.x - m_hitbox.min.x) + (m_hitbox.max.y - m_hitbox.min.y)) / 3.0f);
+	float maxDist = (m_viewScale * 64.0f) * (((m_hitbox.max.z - m_hitbox.min.z) + (m_hitbox.max.x - m_hitbox.min.x) + (m_hitbox.max.y - m_hitbox.min.y)) / 3.0f);
 
 	return maxDist * maxDist > distSqr;
 }
@@ -879,14 +826,13 @@ void Entity::animateHurt()
 
 }
 
-ItemEntity* Entity::spawnAtLocation(ItemInstance* itemInstance, float y)
+ItemEntity* Entity::spawnAtLocation(const ItemStack& itemStack, float y)
 {
-	ItemEntity *itemEntity = new ItemEntity(m_pLevel, Vec3(m_pos.x, m_pos.y + y, m_pos.z), itemInstance);
-	delete(itemInstance);
+	ItemEntity* itemEntity = new ItemEntity(getTileSource(), Vec3(m_pos.x, m_pos.y + y, m_pos.z), itemStack);
 	// @TODO: not sure what this does, or is for
 	itemEntity->m_oPos.x = 10;
 	m_pLevel->addEntity(itemEntity);
-	
+
 	return itemEntity;
 }
 
@@ -897,8 +843,7 @@ ItemEntity* Entity::spawnAtLocation(int itemID, int amount)
 
 ItemEntity* Entity::spawnAtLocation(int itemID, int amount, float y)
 {
-	ItemInstance* itemInstance = new ItemInstance(itemID, amount, 0);
-	return spawnAtLocation(itemInstance, y);
+	return spawnAtLocation(ItemStack(itemID, amount, 0), y);
 }
 
 void Entity::awardKillScore(Entity* pKilled, int score)
@@ -911,10 +856,17 @@ void Entity::setEquippedSlot(int a, int b, int c)
 
 }
 
-void Entity::setRot(const Vec2& rot)
+void Entity::setRot(const Rot2& rot, bool rebound)
 {
-	m_rot.x = /*Mth::abs(rot.x) > 360.0f ? fmod(rot.x, 360.0f) :*/ rot.x;
-	m_rot.y = /*Mth::abs(rot.y) > 360.0f ? fmod(rot.y, 360.0f) :*/ rot.y;
+	if (rebound)
+	{
+		m_rot.yaw = Mth::abs(rot.yaw) > 360.0f ? fmod(rot.yaw, 360.0f) : rot.yaw;
+		m_rot.pitch = Mth::abs(rot.pitch) > 360.0f ? fmod(rot.pitch, 360.0f) : rot.pitch;
+	}
+	else
+	{
+		m_rot = rot;
+	}
 }
 
 void Entity::setSize(float rad, float height)
@@ -936,7 +888,7 @@ void Entity::setPos(EntityPos* pPos)
 		setRot(m_rot);
 }
 
-void Entity::resetPos()
+void Entity::resetPos(bool respawn)
 {
 	if (!m_pLevel)
 		// No level?  Fine
@@ -951,17 +903,17 @@ void Entity::resetPos()
 	{
 		setPos(m_pos);
 
-		AABBVector* pCubes = m_pLevel->getCubes(this, m_hitbox);
+		std::vector<AABB>& pCubes = m_pTileSource->fetchAABBs(m_hitbox, true);
 
 		// if we aren't inside any tiles, great!
-		if (!pCubes->size())
+		if (pCubes.size() == 0)
 			break;
 
 		m_pos.y += 1.0f;
 	}
 
 	m_vel = Vec3::ZERO;
-	m_rot.y = 0.0f;
+	m_rot.pitch = 0.0f;
 }
 
 void Entity::outOfWorld()
@@ -969,9 +921,9 @@ void Entity::outOfWorld()
 	remove();
 }
 
-void Entity::checkFallDamage(float fDeltaY, bool bHitGround)
+void Entity::checkFallDamage(float ya, bool onGround)
 {
-	if (bHitGround)
+	if (onGround)
 	{
 		if (m_distanceFallen > 0.0f)
 		{
@@ -979,13 +931,13 @@ void Entity::checkFallDamage(float fDeltaY, bool bHitGround)
 			m_distanceFallen = 0.0f;
 		}
 	}
-	else if (fDeltaY < 0.0f)
+	else if (ya < 0.0f)
 	{
-		m_distanceFallen -= fDeltaY;
+		m_distanceFallen -= ya;
 	}
 }
 
-void Entity::causeFallDamage(float f)
+void Entity::causeFallDamage(float ya)
 {
 	// stub
 }
@@ -997,24 +949,271 @@ void Entity::markHurt()
 
 void Entity::burn(int x)
 {
-	if (!field_D5)
+	if (!m_bFireImmune)
 		hurt(nullptr, 4);
 }
 
 void Entity::lavaHurt()
 {
-	if (!field_D5)
+	if (!m_bFireImmune)
 	{
 		hurt(nullptr, 4);
 		m_fireTicks = 600;
 	}
 }
 
-int Entity::queryEntityRenderer()
+Entity::RenderType Entity::queryEntityRenderer() const
 {
-	// If field_C8 is equal to RENDER_DYNAMIC, EntityRenderDispatcher
+	// If m_renderType is equal to RENDER_DYNAMIC, EntityRenderDispatcher
 	// calls here. Used for sheared sheep.
-	return 0;
+	return RENDER_NONE;
+}
+
+const AABB* Entity::getCollideBox() const
+{
+	return nullptr;
+}
+
+AABB* Entity::getCollideAgainstBox(Entity* ent) const
+{
+	return nullptr;
+}
+
+void Entity::rideTick()
+{
+	Entity* riding = getRiding();
+	if (!riding || riding->m_bRemoved)
+	{
+		setRiding(nullptr);
+		return;
+	}
+
+	// we don't move
+	m_vel = Vec3::ZERO;
+
+	tick();
+
+	riding->positionRider();
+	m_rideRot.yaw += riding->m_rot.yaw - riding->m_oRot.yaw;
+	m_rideRot.pitch += riding->m_rot.pitch - riding->m_oRot.pitch;
+	while (m_rideRot.pitch >= 180.0f)
+		m_rideRot.pitch -= 360.0f;
+	while (m_rideRot.pitch < -180.0f)
+		m_rideRot.pitch += 360.0f;
+	while (m_rideRot.yaw >= 180.0f)
+		m_rideRot.yaw -= 360.0f;
+	while (m_rideRot.yaw < -180.0f)
+		m_rideRot.yaw += 360.0f;
+	
+	float yaw = m_rideRot.yaw * 0.5f;
+	float pitch = m_rideRot.pitch * 0.5f;
+
+	constexpr float lookLimiter = 10.0f;
+	yaw = Mth::clamp(yaw, -lookLimiter, lookLimiter);
+	pitch = Mth::clamp(pitch, -lookLimiter, lookLimiter);
+
+	m_rideRot.yaw -= yaw;
+	m_rideRot.pitch -= pitch;
+
+	m_rot.yaw += yaw;
+	m_rot.pitch += pitch;
+}
+
+void Entity::handleInsidePortal()
+{
+}
+
+void Entity::handleEntityEvent(EventType::ID eventId)
+{
+	LOG_W("Unknown EntityEvent ID: %d, EntityType: %s", eventId, getDescriptor().getEntityType().getName().c_str());
+}
+
+void Entity::positionRider()
+{
+	Entity* rider = getRider();
+	if (!rider)
+		return;
+
+	rider->setPos(Vec3(m_pos.x, m_pos.y + getRideHeight() + rider->getRidingHeight(), m_pos.z));
+}
+
+void Entity::ride(Entity* newRiding)
+{
+	m_rideRot = Rot2::ZERO;
+	Entity* oldRiding = getRiding();
+
+	// Dismount current ride if nullptr is fed in
+	if (newRiding == nullptr)
+	{
+		if (oldRiding)
+		{
+			moveTo(oldRiding->m_pos);
+			setRot(oldRiding->m_rot);
+			oldRiding->setRider(nullptr);
+		}
+
+		// Let yourself know you aren't riding anything
+		setRiding(nullptr);
+
+		return;
+	}
+
+	// Dismount if the same entity is fed in
+	if (oldRiding && oldRiding == newRiding)
+	{
+		oldRiding->setRider(nullptr);
+
+		setRiding(nullptr);
+
+		moveTo(oldRiding->m_pos);
+		setRot(oldRiding->m_rot);
+		return;
+	}
+
+	// if (this.riding != null) this.riding.rider = null;
+	if (oldRiding)
+	{
+		oldRiding->setRider(nullptr);
+	}
+
+	// if (newRiding.rider != null) newRiding.rider.riding = null;
+	// i hate this name but it's literally what it is
+	if (Entity* newRidesOldRider = newRiding->getRider())
+	{
+		setRiding(nullptr);
+		newRidesOldRider->setRider(nullptr);
+	}
+
+	setRiding(newRiding);
+	newRiding->setRider(this);
+}
+
+Entity* Entity::getRiding() const
+{
+	if (m_ridingId <= 0)
+		return nullptr;
+
+	if (Entity* riding = m_pLevel->getEntity(m_ridingId))
+		return riding;
+
+	return nullptr;
+}
+
+Entity* Entity::getRider() const
+{
+    if (m_riderId <= 0)
+		return nullptr;
+
+	if (Entity* rider = m_pLevel->getEntity(m_riderId))
+		return rider;
+
+	return nullptr;
+}
+
+void Entity::setRider(Entity* rider)
+{
+	m_riderId = (rider) ? rider->m_EntityID : 0;
+}
+
+void Entity::setRiding(Entity* riding)
+{
+	m_ridingId = (riding) ? riding->m_EntityID : 0;
+	setSharedFlag(FLAG_RIDING, riding != nullptr);
+}
+
+/*void Entity::thunderHit(LightningBolt* bolt)
+{
+	burn(5);
+	++m_fireTicks;
+	if (m_fireTicks == 0)
+		m_fireTicks = 300;
+
+}*/
+
+void Entity::load(const CompoundTag& tag)
+{
+	const ListTag* posTag = tag.getList("Pos");
+	const ListTag* motionTag = tag.getList("Motion");
+	const ListTag* rotTag = tag.getList("Rotation");
+	m_vel.x = motionTag->getFloat(0);
+	m_vel.y = motionTag->getFloat(1);
+	m_vel.z = motionTag->getFloat(2);
+	if (Mth::abs(m_vel.x) > 10.0f)
+	{
+		m_vel.x = 0.0f;
+	}
+	if (Mth::abs(m_vel.y) > 10.0f)
+	{
+		m_vel.y = 0.0f;
+	}
+	if (Mth::abs(m_vel.z) > 10.0f)
+	{
+		m_vel.z = 0.0f;
+	}
+	m_posPrev.x = m_oPos.x = m_pos.x = posTag->getFloat(0);
+	m_posPrev.y = m_oPos.y = m_pos.y = posTag->getFloat(1);
+	m_posPrev.z = m_oPos.z = m_pos.z = posTag->getFloat(2);
+	m_oRot.pitch = m_rot.pitch = rotTag->getFloat(0);
+	m_oRot.yaw = m_rot.yaw = rotTag->getFloat(1);
+	m_distanceFallen = tag.getFloat("FallDistance");
+	m_fireTicks = tag.getInt16("Fire");
+	m_airSupply = tag.getInt16("Air");
+	m_bOnGround = tag.getBoolean("OnGround");
+	setPos(m_pos);
+	setRot(m_rot, true);
+	readAdditionalSaveData(tag);
+}
+
+bool Entity::save(CompoundTag& tag) const
+{
+	EntityType::ID id = getEncodeId();
+	if (m_bRemoved)
+		return false;
+	if (id == EntityType::UNKNOWN)
+	{
+		LOG_W("Failed to save unknown entity!");
+		return false;
+	}
+
+	tag.putInt32("id", id);
+	saveWithoutId(tag);
+	return true;
+}
+
+void Entity::saveWithoutId(CompoundTag& tag) const
+{
+	tag.put("Pos", ListTagFloatAdder(m_pos.x)(m_pos.y + m_ySlideOffset)(m_pos.z));
+	tag.put("Motion", ListTagFloatAdder(m_vel.x)(m_vel.y)(m_vel.z));
+	tag.put("Rotation", ListTagFloatAdder(m_rot.pitch)(m_rot.yaw));
+	tag.putFloat("FallDistance", m_distanceFallen);
+	tag.putInt16("Fire", m_fireTicks);
+	tag.putInt16("Air", m_airSupply);
+	tag.putBoolean("OnGround", m_bOnGround);
+	//tag.putInt32("PortalCooldown", m_portalCooldown);
+	//tag.putBoolean("IsGlobal", m_bIsGlobal);
+
+	/*if (isRide())
+		tag.put("LinksTag", saveLinks());*/
+
+	addAdditionalSaveData(tag);
+}
+
+void Entity::addAdditionalSaveData(CompoundTag& tag) const
+{
+}
+
+void Entity::readAdditionalSaveData(const CompoundTag& tag)
+{
+}
+
+EntityType::ID Entity::getEncodeId() const
+{
+	return getDescriptor().getEntityType().getId();
+}
+
+Dimension& Entity::getDimension() const
+{
+	return m_pTileSource->getDimension();
 }
 
 bool Entity::operator==(const Entity& other) const

@@ -15,7 +15,7 @@
 class Explosion
 {
 public:
-	Explosion(Level*, Entity*, const Vec3& pos, float power);
+	Explosion(TileSource&, Entity*, const Vec3& pos, float power);
 	void addParticles();
 	void explode();
 
@@ -29,14 +29,14 @@ public:
 	Vec3 m_pos;
 	float m_power;
 
-	//field_10, m_noEntityRenderFrames, m_totalEntities, m_renderedEntities - Likely a set<TilePos>
+	//m_destroyProgress, m_noEntityRenderFrames, m_totalEntities, m_renderedEntities - Likely a set<TilePos>
 	std::set<TilePos> m_tiles;
 	int field_20;
 
 	bool m_bIsFiery;
 	Entity* m_pEntity;
 	Random m_random;
-	Level* m_pLevel;
+	TileSource& m_tileSource;
 
 };
 

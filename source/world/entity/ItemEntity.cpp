@@ -8,38 +8,40 @@
 
 #include "ItemEntity.hpp"
 #include "world/level/Level.hpp"
+#include "world/level/TileSource.hpp"
+#include "nbt/CompoundTag.hpp"
 
-void ItemEntity::_init(const ItemInstance* itemInstance)
+void ItemEntity::_init(const ItemStack& itemStack)
 {
-	field_E0 = 0;
-	field_E4 = 0;
-	field_EC = 0;
+	m_pDescriptor = &EntityTypeDescriptor::item;
+	m_renderType = RENDER_ITEM;
+	m_age = 0;
+	m_throwTime = 0;
+	m_tickCount = 0;
 	m_health = 5;
 	m_bMakeStepSound = false;
 
 	// @NOTE: not setting render type
-	field_E8 = 2 * float(M_PI) * Mth::random();
+	m_bobOffs = 2 * float(M_PI) * Mth::random();
 	setSize(0.25f, 0.25f);
 	m_heightOffset = m_bbHeight * 0.5f;
-#ifdef ORIGINAL_CODE
-	m_pItemInstance = itemInstance != nullptr ? itemInstance : new ItemInstance();
-#else
-	m_itemInstance = itemInstance != nullptr ? ItemInstance(*itemInstance) : ItemInstance();
-#endif
+	m_itemStack = itemStack;
 }
 
-void ItemEntity::_init(const ItemInstance* itemInstance, const Vec3& pos)
+void ItemEntity::_init(const ItemStack& itemStack, const Vec3& pos)
 {
-	_init(itemInstance);
-
-	field_C8 = RENDER_ITEM;
+	_init(itemStack);
 	setPos(pos);
 
-	m_rot.x = 360.0f * Mth::random();
+	m_rot.yaw = 360.0f * Mth::random();
 
 	m_vel.y = 0.2f;
 	m_vel.x = Mth::random() * 0.2f - 0.1f;
 	m_vel.z = Mth::random() * 0.2f - 0.1f;
+}
+
+ItemEntity::~ItemEntity()
+{
 }
 
 void ItemEntity::burn(int damage)
@@ -62,20 +64,34 @@ bool ItemEntity::isInWater()
 	return m_pLevel->checkAndHandleWater(m_hitbox, Material::water, this);
 }
 
+// @PARITY
+#if MC_PLATFORM_MOBILE
+#define C_ITEM_POP_VOLUME 0.3f
+#else
+#define C_ITEM_POP_VOLUME 0.2f
+#endif
+
 void ItemEntity::playerTouch(Player* player)
 {
+	if (m_pLevel->m_bIsClientSide)
+		return;
+
 	// Here, this would give the item to the player, and remove the item entity.
-	if (field_E4 != 0)
+	if (m_throwTime != 0 || !player->isAlive())
 		return;
 
 	Inventory* pInventory = player->m_pInventory;
 
-	pInventory->addItem(&m_itemInstance);
+	if (!pInventory->add(m_itemStack))
+		return;
 
-	m_pLevel->playSound(this, "random.pop", 0.3f,
-		(((sharedRandom.nextFloat() - sharedRandom.nextFloat()) * 0.7f) + 1.0f) + (((sharedRandom.nextFloat() - sharedRandom.nextFloat()) * 0.7f) + 1.0f));
+	m_pLevel->playSound(this, "random.pop", C_ITEM_POP_VOLUME,
+		((sharedRandom.nextFloat() - sharedRandom.nextFloat()) * 0.7f + 1.0f) * 2.0f);
 
-	if (m_itemInstance.m_count <= 0)
+	player->take(this, m_itemStack.m_count);
+
+	// On 0.2.1, this gets removed regardless. What about stacks??
+	if (m_itemStack.m_count <= 0)
 		remove();
 }
 
@@ -83,13 +99,13 @@ void ItemEntity::tick()
 {
 	Entity::tick();
 
-	if (field_E4 > 0)
-		field_E4--;
+	if (m_throwTime > 0)
+		m_throwTime--;
 
 	m_oPos = m_pos;
 	m_vel.y -= 0.04f;
 
-	if (m_pLevel->getMaterial(m_pos) == Material::lava)
+	if (m_pTileSource->getMaterial(m_pos) == Material::lava)
 	{
 		// give it a small bounce upwards
 		m_vel.y = 0.2f;
@@ -103,42 +119,65 @@ void ItemEntity::tick()
 
 	float dragFactor = 0.98f;
 
-	if (m_onGround)
+	if (m_bOnGround)
 	{
 		dragFactor = 0.588f;
-		TileID tile = m_pLevel->getTile(TilePos(Mth::floor(m_pos.x), Mth::floor(m_hitbox.min.y) - 1, Mth::floor(m_pos.z)));
+		TileID tile = m_pTileSource->getTile(TilePos(Mth::floor(m_pos.x), Mth::floor(m_hitbox.min.y) - 1, Mth::floor(m_pos.z)));
 		if (tile > 0)
-			dragFactor = Tile::tiles[tile]->field_30 * 0.98f;
+			dragFactor = Tile::tiles[tile]->m_friction * 0.98f;
 	}
 
 	m_vel.x *= dragFactor;
 	m_vel.z *= dragFactor;
 	m_vel.y *= 0.98f;
 
-	if (m_onGround)
+	if (m_bOnGround)
 		m_vel.y *= -0.5f;
 
-	field_EC++;
-	field_E0++;
+	m_tickCount++;
+	m_age++;
 
 	// despawn after 5 minutes
-	if (field_E0 >= 6000)
+	if (m_age >= 6000)
 		remove();
+}
+
+void ItemEntity::addAdditionalSaveData(CompoundTag& tag) const
+{
+	tag.putInt16("Health", m_health);
+	tag.putInt16("Age", m_age);
+	CompoundTag* itemTag = new CompoundTag();
+	m_itemStack.save(*itemTag);
+	tag.putCompound("Item", itemTag);
+}
+
+void ItemEntity::readAdditionalSaveData(const CompoundTag& tag)
+{
+	m_health = tag.getInt16("Health") & 255;
+	m_age = tag.getInt16("Age");
+
+	const CompoundTag* itemTag = tag.getCompound("Item");
+	if (!itemTag)
+	{
+		remove();
+		return;
+	}
+	m_itemStack.load(*itemTag);
 }
 
 void ItemEntity::checkInTile(const Vec3& pos)
 {
 	TilePos flPos = pos;
 
-	if (!Tile::solid[m_pLevel->getTile(pos)])
+	if (!Tile::solid[m_pTileSource->getTile(pos)])
 		return;
 	
-	bool solidXN = Tile::solid[m_pLevel->getTile(flPos.west())];
-	bool solidXP = Tile::solid[m_pLevel->getTile(flPos.east())];
-	bool solidYN = Tile::solid[m_pLevel->getTile(flPos.below())];
-	bool solidYP = Tile::solid[m_pLevel->getTile(flPos.above())];
-	bool solidZN = Tile::solid[m_pLevel->getTile(flPos.north())];
-	bool solidZP = Tile::solid[m_pLevel->getTile(flPos.south())];
+	bool solidXN = Tile::solid[m_pTileSource->getTile(flPos.west())];
+	bool solidXP = Tile::solid[m_pTileSource->getTile(flPos.east())];
+	bool solidYN = Tile::solid[m_pTileSource->getTile(flPos.below())];
+	bool solidYP = Tile::solid[m_pTileSource->getTile(flPos.above())];
+	bool solidZN = Tile::solid[m_pTileSource->getTile(flPos.north())];
+	bool solidZP = Tile::solid[m_pTileSource->getTile(flPos.south())];
 
 	float mindist = 9999.0f;
 	int mindir = -1;

@@ -8,19 +8,19 @@
 
 #include "Particle.hpp"
 #include "world/level/Level.hpp"
+#include "world/level/TileSource.hpp"
 
-BubbleParticle::BubbleParticle(Level* level, const Vec3& pos, const Vec3& dir) :
-	Particle(level, pos, dir)
+BubbleParticle::BubbleParticle(TileSource& source, const Vec3& pos, const Vec3& dir) :
+	Particle(source, pos, dir)
 {
-	m_rCol = m_gCol = m_bCol = 1.0f;
-	field_DC = PTI_BUBBLE;
+	m_tex = PTI_BUBBLE;
 	setSize(0.02f, 0.02f);
 
-	field_F0 *= 0.2f + 0.6f * sharedRandom.nextFloat();
+	m_size *= 0.2f + 0.6f * sharedRandom.nextFloat();
 	m_vel.x = dir.x * 0.2f + 0.02f * (2.0f * Mth::random() - 1.0f);
 	m_vel.y = dir.y * 0.2f + 0.02f * (2.0f * Mth::random() - 1.0f);
 	m_vel.z = dir.z * 0.2f + 0.02f * (2.0f * Mth::random() - 1.0f);
-	field_EC = int(8.0f / (Mth::random() * 0.8f + 0.2f));
+	m_lifetime = int(8.0f / (Mth::random() * 0.8f + 0.2f));
 }
 
 void BubbleParticle::tick()
@@ -32,10 +32,10 @@ void BubbleParticle::tick()
 
 	m_vel *= 0.85f;
 
-	if (m_pLevel->getMaterial(m_pos) != Material::water)
+	if (m_pTileSource->getMaterial(m_pos) != Material::water)
 		remove();
 
-	field_EC--;
-	if (field_EC <= 0)
+	m_lifetime--;
+	if (m_lifetime <= 0)
 		remove();
 }

@@ -7,8 +7,10 @@
  ********************************************************************/
 
 #include "MobRenderer.hpp"
-#include "EntityRenderDispatcher.hpp"
 #include "client/app/Minecraft.hpp"
+#include "renderer/ShaderConstants.hpp"
+#include "EntityRenderDispatcher.hpp"
+#include "client/renderer/Lighting.hpp"
 
 MobRenderer::MobRenderer(Model* pModel, float f)
 {
@@ -17,235 +19,226 @@ MobRenderer::MobRenderer(Model* pModel, float f)
 	m_shadowRadius = f;
 }
 
+MobRenderer::~MobRenderer()
+{
+    SAFE_DELETE(m_pModel);
+    SAFE_DELETE(m_pArmorModel);
+}
+
 void MobRenderer::setArmor(Model* model)
 {
 	m_pArmorModel = model;
 }
 
-int MobRenderer::prepareArmor(Mob* mob, int a, float b)
+int MobRenderer::prepareArmor(const Mob& mob, int a, float b)
 {
 	return 0;
 }
 
-void MobRenderer::additionalRendering(Mob* mob, float f)
+void MobRenderer::additionalRendering(const Mob& mob, float f)
 {
 }
 
-float MobRenderer::getAttackAnim(Mob* mob, float f)
+float MobRenderer::getAttackAnim(const Mob& mob, float f)
 {
-	return mob->getAttackAnim(f);
+	return mob.getAttackAnim(f);
 }
 
-float MobRenderer::getBob(Mob* mob, float f)
+float MobRenderer::getBob(const Mob& mob, float f)
 {
-	return float(mob->m_tickCount) + f;
+	return float(mob.m_tickCount) + f;
 }
 
-float MobRenderer::getFlipDegrees(Mob* mob)
+float MobRenderer::getFlipDegrees(const Mob& mob)
 {
 	return 90.0f;
 }
 
-int MobRenderer::getOverlayColor(Mob* mob, float a, float b)
-{
-	return 0;
-}
-
-void MobRenderer::scale(Mob*, float)
-{
-
-}
-
-void MobRenderer::setupPosition(Entity* entity, float x, float y, float z)
+void MobRenderer::setupPosition(const Entity& entity, const Vec3& pos, Matrix& matrix)
 {
 	// @HACK: I eye-balled a corrective offset of 1/13, since I still can't figure out why all mobs are floating - Brent
 	// This was due to "0.059375f" being used for scale instead of "0.0625f"
-	glTranslatef(x, y, z);
+	matrix.translate(pos);
 }
 
-void MobRenderer::setupRotations(Entity* entity, float x, float y, float z)
+void MobRenderer::setupRotations(const Entity& entity, float bob, float bodyRot, Matrix& matrix, float a)
 {
-	glRotatef(180.0f - y, 0.0f, 1.0f, 0.0f);
+	matrix.rotate(180.0f - bodyRot, Vec3::UNIT_Y);
 
-	Mob* mob = (Mob*)entity;
-	if (mob->field_110 > 0)
+	const Mob& mob = (const Mob&)entity;
+	if (mob.m_deathTime > 0)
 	{
-		float t = Mth::sqrt((float(mob->field_110) + z - 1.0f) / 20.0f * 1.6f);
+		float t = Mth::sqrt((float(mob.m_deathTime) + a - 1.0f) / 20.0f * 1.6f);
 		if (t > 1.0f)
 			t = 1.0f;
 
-		glRotatef(getFlipDegrees(mob) * t, 0.0f, 0.0f, 1.0f);
+		matrix.rotate(getFlipDegrees(mob) * t, Vec3::UNIT_Z);
 	}
 }
 
-void MobRenderer::render(Entity* entity, float x, float y, float z, float unused, float f)
+void MobRenderer::scale(const Mob& mob, Matrix& matrix, float a)
 {
-	Mob* pMob = (Mob*)entity;
 
-	glPushMatrix();
-	glDisable(GL_CULL_FACE);
+}
 
-	m_pModel->field_4 = getAttackAnim(pMob, f);
-	m_pModel->m_bRiding = false;
-	m_pModel->m_bIsBaby = pMob->isBaby();
+void MobRenderer::render(const Entity& entity, const Vec3& pos, float rot, float a)
+{
+	const Mob& mob = (const Mob&)entity;
 
-	if (m_pArmorModel != nullptr)
 	{
-		m_pArmorModel->m_bRiding = m_pModel->m_bRiding;
-		m_pArmorModel->m_bIsBaby = m_pModel->m_bIsBaby;
-	}
+		MatrixStack::Ref matrix = MatrixStack::World.push();
 
-	float aYaw   = pMob->m_rotPrev.x + (pMob->m_rot.x   - pMob->m_rotPrev.x) * f;
-	float aPitch = pMob->m_rotPrev.y + (pMob->m_rot.y - pMob->m_rotPrev.y) * f;
-	float fBob   = getBob(pMob, f);
-	float fSmth  = pMob->field_EC + (pMob->field_E8 - pMob->field_EC) * f;
+		m_pModel->m_attackTime = getAttackAnim(mob, a);
+		m_pModel->m_bRiding = mob.isRiding();
+		m_pModel->m_bIsBaby = mob.isBaby();
 
-	setupPosition(pMob, x, y - pMob->m_heightOffset, z);
-	setupRotations(pMob, fBob, fSmth, f);
-
-	float fScale = 0.0625f; // the scale variable according to b1.2_02
-	glScalef(-1.0f, -1.0f, 1.0f);
-	scale(pMob, f);
-	//glTranslatef(0.0f, -1.5078f, 0.0f);
-	glTranslatef(0.0f, -24.0f * fScale - (1.0f / 128.0f), 0.0f);
-
-	float x1 = pMob->field_128 + (pMob->field_12C - pMob->field_128) * f;
-	if (x1 > 1.0f)
-		x1 = 1.0f;
-	float x2 = pMob->field_130 - pMob->field_12C * (1.0f - f);
-
-	bindTexture(pMob->getTexture());
-	glEnable(GL_ALPHA_TEST);
-
-	m_pModel->setBrightness(entity->getBrightness(1.0f));
-	m_pModel->prepareMobModel(pMob, x2, x1, f);
-	m_pModel->render(x2, x1, fBob, aYaw - fSmth, aPitch, fScale); // last float here (scale) was set to "0.059375f" for some reason
-
-	for (int i = 0; i < 4; i++)
-	{
-		if (prepareArmor(pMob, i, f))
+		if (m_pArmorModel != nullptr)
 		{
-			m_pArmorModel->render(x2, x1, fBob, aYaw - fSmth, aPitch, fScale);
-			glDisable(GL_BLEND);
-			glEnable(GL_ALPHA_TEST);
+			m_pArmorModel->m_bRiding = m_pModel->m_bRiding;
+			m_pArmorModel->m_bIsBaby = m_pModel->m_bIsBaby;
+			m_pArmorModel->m_attackTime = m_pModel->m_attackTime;
 		}
-	}
 
-	additionalRendering(pMob, f);
-	
-	float fBright = pMob->getBrightness(f);
-	int iOverlayColor = getOverlayColor(pMob, fBright, f);
+		float aYaw = mob.m_oRot.yaw + (mob.m_rot.yaw - mob.m_oRot.yaw) * a;
+		float aPitch = mob.m_oRot.pitch + (mob.m_rot.pitch - mob.m_oRot.pitch) * a;
+		float fBob = getBob(mob, a);
+		float fSmth = mob.m_yBodyRotO + (mob.m_yBodyRot - mob.m_yBodyRotO) * a;
 
-	if (GET_ALPHA(iOverlayColor) || pMob->m_hurtTime > 0 || pMob->field_110 > 0)
-	{
-		glDisable(GL_TEXTURE_2D);
-		glDisable(GL_ALPHA_TEST);
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glDepthFunc(GL_EQUAL);
+		setupPosition(mob, Vec3(pos.x, pos.y - mob.m_heightOffset, pos.z), matrix);
+		setupRotations(mob, fBob, fSmth, matrix, a);
 
-		if (pMob->m_hurtTime > 0 || pMob->field_110 > 0)
+		constexpr float fScale = 0.0625f; // the scale variable according to b1.2_02
+		matrix->scale(Vec3(-1.0f, -1.0f, 1.0f)); // flip mobs right-side-up
+		scale(mob, matrix, a);
+		matrix->translate(Vec3(0.0f, -24.0f * fScale - (1.0f / 128.0f), 0.0f));
+
+		float x1 = mob.m_walkAnimSpeedO + (mob.m_walkAnimSpeed - mob.m_walkAnimSpeedO) * a;
+		if (x1 > 1.0f)
+			x1 = 1.0f;
+		float x2 = mob.m_walkAnimPos - mob.m_walkAnimSpeed * (1.0f - a);
+
+		bindTexture(mob.getTexture());
+
+		m_pModel->setBrightness(entity.getBrightness(1.0f)); // does practically nothing
+		m_pModel->prepareMobModel(mob, x2, x1, a);
+		m_pModel->render(x2, x1, fBob, aYaw - fSmth, aPitch, fScale);
+
+		for (int i = 0; i < 4; i++)
 		{
-			glColor4f(fBright, 0.0f, 0.0f, 0.4f);
-			m_pModel->render(x2, x1, fBob, aYaw - fSmth, aPitch, fScale); // was 0.059375f. Why?
+			if (prepareArmor(mob, i, a))
+			{
+				m_pArmorModel->render(x2, x1, fBob, aYaw - fSmth, aPitch, fScale);
+			}
+		}
+
+		additionalRendering(mob, a);
+
+		// This is the only way to do overlay colors in FFP OpenGL afaik
+		// With shaders, we get per-pixel blending on a single mesh, not with FFP
+#ifndef FEATURE_GFX_SHADERS
+		Color overlayColor = getOverlayColor(mob, a);
+		if (overlayColor.a > 0.0f)
+		{
+			currentShaderColor = overlayColor;
+			mce::MaterialPtr* pMaterial = m_pModel->m_pMaterial;
+			m_pModel->m_pMaterial = &m_pModel->m_materials.entity_color_overlay;
+
+			m_pModel->render(x2, x1, fBob, aYaw - fSmth, aPitch, fScale);
 
 			for (int i = 0; i < 4; i++)
 			{
-				if (prepareArmor(pMob, i, f))
+				if (prepareArmor(mob, i, a))
 				{
-					glColor4f(fBright, 0.0f, 0.0f, 0.4f);
+					mce::MaterialPtr* pMaterial = m_pArmorModel->m_pMaterial;
+					m_pArmorModel->m_pMaterial = &m_pArmorModel->m_materials.entity_color_overlay;
+
 					m_pArmorModel->render(x2, x1, fBob, aYaw - fSmth, aPitch, fScale);
+
+					m_pArmorModel->m_pMaterial = pMaterial;
 				}
 			}
 
+			m_pModel->m_pMaterial = pMaterial;
 		}
-		if (GET_ALPHA(iOverlayColor))
-		{
-			float r = float(GET_RED(iOverlayColor)) / 255.0f;
-			float g = float(GET_GREEN(iOverlayColor)) / 255.0f;
-			float b = float(GET_BLUE(iOverlayColor)) / 255.0f;
-			float aa = float(GET_ALPHA(iOverlayColor)) / 255.0f;
-			glColor4f(r, g, b, aa);
-
-			m_pModel->render(x2, x1, fBob, aYaw - fSmth, aPitch, fScale); // same here
-
-			for (int i = 0; i < 4; i++)
-			{
-				if (prepareArmor(pMob, i, f))
-				{
-					glColor4f(r, g, b, aa);
-					m_pArmorModel->render(x2, x1, fBob, aYaw - fSmth, aPitch, fScale);
-				}
-			}
-
-		}
-
-		glDepthFunc(GL_LEQUAL);
-		glDisable(GL_BLEND);
-		glEnable(GL_TEXTURE_2D);
-		glEnable(GL_ALPHA_TEST);
+#endif
 	}
-	
-	glEnable(GL_CULL_FACE);
-	glPopMatrix();
-	renderName(pMob, x, y, z);
+	renderName(mob, pos);
 }
 
-void MobRenderer::renderName(Mob* mob, float x, float y, float z)
+void MobRenderer::onGraphicsReset()
 {
-	if (!mob->isPlayer())
-		return;
-
-	Player* player = (Player*)mob;
-	if (player == m_pDispatcher->m_pMinecraft->m_pLocalPlayer)
-		return;
-
-	// @TODO: don't know why but I have to add this correction. look into it and fix it!
-	renderNameTag(mob, player->m_name, x, y - 1.5f, z, mob->isSneaking() ? 32 : 64);
+	m_pModel->onGraphicsReset();
+	if (m_pArmorModel)
+		m_pArmorModel->onGraphicsReset();
 }
 
-void MobRenderer::renderNameTag(Mob* mob, const std::string& str, float x, float y, float z, int a)
+void MobRenderer::renderName(const Mob& mob, const Vec3& pos)
 {
-	if (mob->distanceToSqr(m_pDispatcher->m_pMob) > float(a * a))
+	if (mob.isPlayer())
+	{
+		if (&mob == m_pDispatcher->m_pCamera)
+			return;
+
+		const Player& player = (const Player&)mob;
+
+		// @TODO: don't know why but I have to add this correction. look into it and fix it!
+		renderNameTag(mob, player.getName(), Vec3(pos.x, pos.y - 1.5f, pos.z), mob.isSneaking() ? 32 : 64, player.m_color);
+	}
+	else
+	{
+		if (m_pDispatcher->m_pOptions->m_debugText.get())
+		{
+			renderNameTag(mob, Util::toString(mob.m_EntityID), pos, 64);
+		}
+	}
+}
+
+void MobRenderer::renderNameTag(const Mob& mob, const std::string& str, const Vec3& pos, int a, const Color& outlineColor)
+{
+	if (mob.distanceToSqr(m_pDispatcher->m_pCamera) > float(a * a))
 		return;
 
-	Font* font = getFont();
+	Font& font = *getFont();
+	Options& options = *m_pDispatcher->m_pMinecraft->getOptions();
 
-	glPushMatrix();
-	glTranslatef(x + 0.0f, y + 2.3f, z);
-	glNormal3f(0.0f, 1.0f, 0.0f);
+	MatrixStack::Ref matrix = MatrixStack::World.push();
+	matrix->translate(Vec3(pos.x + 0.0f, pos.y + 2.3f, pos.z));
+
 	// billboard the name towards the camera
-	glRotatef(-m_pDispatcher->m_rot.x,   0.0f, 1.0f, 0.0f);
-	glRotatef(+m_pDispatcher->m_rot.y, 1.0f, 0.0f, 0.0f);
-	glScalef(-0.026667f, -0.026667f, 0.026667f);
-	glDepthMask(false);
-	glDisable(GL_DEPTH_TEST);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glDisable(GL_TEXTURE_2D);
-	
-	Tesselator& t = Tesselator::instance;
-	t.begin();
+	matrix->rotate(-m_pDispatcher->m_rot.yaw,   Vec3::UNIT_Y);
+	matrix->rotate(+m_pDispatcher->m_rot.pitch, Vec3::UNIT_X);
+	matrix->scale(Vec3(-0.026667f, -0.026667f, 0.026667f));
 
-	int width = font->width(str);
+	currentShaderColor = Color(0.0f, 0.0f, 0.0f, 0.25f);
+
+	Tesselator& t = Tesselator::instance;
+	t.begin(4);
+
+	int width = font.width(str);
 	float widthHalf = float(width / 2);
 
-	t.color(0.0f, 0.0f, 0.0f, 0.25f);
-	t.vertex(-1.0f - widthHalf, -1.0f, 0.0f);
-	t.vertex(-1.0f - widthHalf, 8.0f, 0.0f);
-	t.vertex(widthHalf + 1.0f, 8.0f, 0.0f);
-	t.vertex(widthHalf + 1.0f, -1.0f, 0.0f);
-	t.draw();
+	t.normal(Vec3::UNIT_Y);
+	t.vertex(-widthHalf - 1.0f, -1.0f, 0.0f);
+	t.vertex(-widthHalf - 1.0f,  8.0f, 0.0f);
+	t.vertex( widthHalf + 1.0f,  8.0f, 0.0f);
+	t.vertex( widthHalf + 1.0f, -1.0f, 0.0f);
+	t.draw(m_materials.name_tag);
 
-	glEnable(GL_TEXTURE_2D);
+	// @TODO: Come back here after implementing line width setting support in HAL.
 
-	font->draw(str, -font->width(str) / 2, 0, 0x20FFFFFF);
-	glEnable(GL_DEPTH_TEST);
-	glDepthMask(true);
+	if (options.getUiTheme() == UI_CONSOLE)
+	{
+		currentShaderColor = outlineColor;
+		t.begin(mce::PRIMITIVE_MODE_LINE_STRIP, 5);
 
-	font->draw(str, -font->width(str) / 2, 0, 0xFFFFFFFF);
+		t.vertex(-widthHalf - 1.0f, -1.0f, 0.0f);
+		t.vertex(-widthHalf - 1.0f,  8.0f, 0.0f);
+		t.vertex( widthHalf + 1.0f,  8.0f, 0.0f);
+		t.vertex( widthHalf + 1.0f, -1.0f, 0.0f);
+		t.vertex(-widthHalf - 1.0f, -1.0f, 0.0f);
+		t.draw(m_materials.name_tag);
+	}
 
-	glDisable(GL_BLEND);
-	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-	glPopMatrix();
+	font.draw(str, -font.width(str) / 2, 0, 0x20FFFFFF);
+	font.draw(str, -font.width(str) / 2, 0, 0xFFFFFFFF);
 }

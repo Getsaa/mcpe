@@ -9,38 +9,40 @@
 #pragma once
 #include <map>
 
-#include "thirdparty/GL/GL.hpp"
 #include "client/options/Options.hpp"
 #include "client/app/AppPlatform.hpp"
 #include "DynamicTexture.hpp"
+#include "texture/TextureAtlas.hpp"
+#include "common/utility/HashMap.hpp"
+
+#define C_TERRAIN_NAME    "terrain.png"
+#define C_ITEMS_NAME      "gui/items.png"
+#define C_BLOCKS_NAME     "gui/gui_blocks.png"
+#define C_PARTICLES_NAME  "particles.png"
 
 class DynamicTexture; // in case we are being included from DynamicTexture. We don't store complete references to that
 
-struct TextureData
-{
-	int glID;
-	Texture textureData;
-
-	TextureData()
-	{
-		glID = 0;
-	}
-	TextureData(int i, Texture& x)
-	{
-		glID = i;
-		textureData = x;
-	}
-};
-
 class Textures
 {
+protected:
+	typedef HashMap<std::string, TextureData*> TextureMap;
+	typedef HashMap<std::string, TextureAtlas*> TextureAtlasMap;
+
 public:
-	int loadTexture(const std::string& name, bool bRequired);
-	int loadAndBindTexture(const std::string& name);
+	TextureData* loadTexture(const std::string& name, bool bRequired);
+	TextureData* loadAndBindTexture(const std::string& name, bool isRequired = true, unsigned int textureUnit = 0);
+	TextureData* getTextureData(const std::string& name, bool isRequired);
+	TextureData* uploadTexture(const std::string& name, TextureData& t);
+	TextureAtlas* getTextureAtlas(const std::string& name);
+	void unloadAll();
 	void clear();
 	void tick();
 	void addDynamicTexture(DynamicTexture* pTexture);
-	Texture* getTemporaryTextureData(GLuint id);
+	void addSprite(const std::string& name, TextureAtlas& atlas);
+	void setupAtlas(TextureAtlas&);
+	void setupAtlases(bool forceReset = false);
+
+	const TextureAtlasSprite* getGuiSprite(const std::string&);
 
 	// set smoothing for next texture to be loaded
 	void setSmoothing(bool b)
@@ -54,24 +56,20 @@ public:
 		m_bClamp = b;
 	}
 
-	Textures(Options*, AppPlatform*);
+	Textures();
 	~Textures();
 
 private:
 	static bool MIPMAP;
 
-	int assignTexture(const std::string& name, Texture& t);
-
 protected:
-	std::map<std::string, GLuint> m_textures;
-	Options* m_pOptions;
-	AppPlatform* m_pPlatform;
+	TextureMap m_textures;
+	TextureAtlasMap m_atlases;
 	int m_currBoundTex;
 	bool m_bClamp;
 	bool m_bBlur;
-	std::map<GLuint, TextureData> m_textureData;
 	std::vector<DynamicTexture*> m_dynamicTextures;
-
-	friend class StartMenuScreen;
+	TextureAtlas m_guiAtlas;
+	TextureAtlas m_filteredGuiAtlas;
 };
 

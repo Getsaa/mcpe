@@ -13,7 +13,8 @@
 class StoneTile : public Tile
 {
 public:
-	StoneTile(int ID, int texture, Material*);
+	StoneTile(TileID ID, int texture, Material*);
 
-	int getResource(int, Random*) const override;
+public:
+	int getResource(TileData data, Random*) const override;
 };

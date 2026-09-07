@@ -1,14 +1,16 @@
 #pragma once
 
 #include "Animal.hpp"
+#include "common/math/Color.hpp"
 
 class Sheep : public Animal
 {
 public:
-	static const float COLOR[][3];
+	static const Color COLOR[];
+	static const unsigned int COLOR_COUNT; // NumColors on PE, stupid name
 
 public:
-	Sheep(Level* pLevel);
+	Sheep(TileSource& source);
 
 private:
 	void _defineEntityData();
@@ -18,15 +20,16 @@ public:
 	std::string getDeathSound() const override { return "mob.sheep"; }
 	std::string getHurtSound() const override { return "mob.sheep"; }
 	virtual bool hurt(Entity*, int) override;
-	//TODO: addAdditonalSaveData
-	//TODO: readAdditionalSaveData
+	void addAdditionalSaveData(CompoundTag& tag) const override;
+	void readAdditionalSaveData(const CompoundTag& tag) override;
 
-	Entity* getBreedOffspring(Animal* pOther) { return new Sheep(m_pLevel); }
+	Entity* getBreedOffspring(Animal* pOther) { return new Sheep(*m_pTileSource); }
 
     int getColor() const;
     void setColor(int);
     bool isSheared() const;
     void setSheared(bool);
 
+public:
 	static int getSheepColor(Random&);
 };

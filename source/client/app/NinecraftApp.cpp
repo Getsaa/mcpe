@@ -8,9 +8,31 @@
 
 #include "NinecraftApp.hpp"
 #include "world/item/Item.hpp"
+#include "world/item/SpawnEggItem.hpp"
 #include "world/entity/MobCategory.hpp"
+#include "world/entity/MobFactory.hpp"
+#include "world/tile/entity/TileEntityType.hpp"
+#include "client/player/input/GameControllerHandler.hpp"
 #include "client/player/input/Multitouch.hpp"
 #include "client/gui/screens/StartMenuScreen.hpp"
+#include "client/gui/screens/AutosaveWarningScreen_Console.hpp"
+#include "client/renderer/FoliageColor.hpp"
+#include "client/renderer/GrassColor.hpp"
+#include "client/renderer/Lighting.hpp"
+#include "client/renderer/PatchManager.hpp"
+#include "client/renderer/renderer/RenderMaterialGroup.hpp"
+#include "client/resources/Resource.hpp"
+#include "client/resources/AppResourceLoader.hpp"
+#include "client/resources/ResourcePackManager.hpp"
+#include "client/locale/Language.hpp"
+#include "renderer/GlobalConstantBufferManager.hpp"
+#include "renderer/GlobalConstantBuffers.hpp"
+#include "renderer/ConstantBufferMetaDataManager.hpp"
+#include "renderer/RenderContextImmediate.hpp"
+#include "renderer/RenderMaterial.hpp"
+#include "client/resources/LoadingTipManager.hpp"
+#include "client/renderer/LogoRenderer.hpp"
+#include "client/resources/SplashManager.hpp"
 
 #ifdef DEMO
 #include "world/level/storage/MemoryLevelStorageSource.hpp"
@@ -20,116 +42,82 @@
 
 bool NinecraftApp::_hasInitedStatics;
 
-bool NinecraftApp::handleBack(bool b)
+void NinecraftApp::_initResourceLoaders()
 {
-	if (m_bPreparingLevel)
-		return true;
-
-	if (!m_pLevel)
-	{
-		if (!m_pScreen)
-			return false;
-
-		return m_pScreen->handleBackEvent(b);
-	}
-
-	if (b)
-		return true;
-
-	if (!m_pScreen)
-	{
-		pauseGame();
-		return false;
-	}
-
-	if (m_pScreen->handleBackEvent(b))
-		return true;
-
-	if (isGamePaused())
-	{
-		resumeGame();
-		return true;
-	}
-
-
-	setScreen(nullptr);
-	return true;
+	Resource::registerLoader(new AppResourceLoader(ResourceLocation::APP_PACKAGE));
+	//Resource::registerLoader(ResourceLocation::DATA_DIR, new AppResourceLoader(platform()->getDataUrl()));
+	//Resource::registerLoader(ResourceLocation::USER_DIR, new AppResourceLoader(dontevenknow));
+	//Resource::registerLoader(ResourceLocation::SETTINGS_DIR, new AppResourceLoader(dontevenknow));
+	Resource::registerLoader(new AppResourceLoader(ResourceLocation::EXTERNAL_DIR));
+	Resource::registerLoader(new AppResourceLoader(ResourceLocation::RAW_PATH));
+	//Resource::registerLoader(ResourceLocation::WORLD_DIR, new ScreenshotLoader(this));
+	m_pResourceLoader = new ResourcePackManager();
+	Resource::registerLoader(m_pResourceLoader);
 }
 
-void NinecraftApp::initGLStates()
+void NinecraftApp::_initOptions()
 {
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LEQUAL);
-	glEnable(GL_ALPHA_TEST);
-	glAlphaFunc(GL_GREATER, 0.1f);
-	glCullFace(GL_BACK);
-	glEnable(GL_TEXTURE_2D);
-	glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_FASTEST);
-	glDisable(GL_LIGHTING);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	AppPlatform& platform = *AppPlatform::singleton();
+
+	// Must be loaded before options, certain options states are forced based on this
+	_reloadPatchData();
+
+	if (platform.hasFileSystemAccess())
+		m_pOptions = new Options(this, platform.m_externalStorageDir);
+	else
+		m_pOptions = new Options(this);
+
+	// kind of a hack, just so we can keep everything centralized in options
+	m_pResourceLoader->m_pPacks = &m_pOptions->m_resourcePacks;
+	_reloadOptionalFeatures();
+	m_pOptions->initResourceDependentOptions();
 }
 
-int NinecraftApp::getFpsIntlCounter()
+void NinecraftApp::_initTextures()
 {
-	int ofps = m_fps;
-	m_fps = 0;
-	return ofps;
+	m_pTextures = new Textures();
+
+	m_pTextures->addDynamicTexture(new WaterTexture);
+	m_pTextures->addDynamicTexture(new WaterSideTexture);
+	m_pTextures->addDynamicTexture(new LavaTexture);
+	m_pTextures->addDynamicTexture(new LavaSideTexture);
+	m_pTextures->addDynamicTexture(new FireTexture(0));
+	m_pTextures->addDynamicTexture(new FireTexture(1));
+
+	//m_pTextures->loadList("startup.images");
+	//m_pTextures->loadList("background.images");
+	//m_pTextures->loadList("ingame.images", ...);
+
+	_reloadTextures();
+
+	m_pTextures->addDynamicTexture(new CompassTexture(this));
+	m_pTextures->addDynamicTexture(new ClockTexture(this));
+
+	if (GrassColor::isAvailable()) GrassColor::init();
+	if (FoliageColor::isAvailable()) FoliageColor::init();
+
+	LogoRenderer::singleton().init(this);
 }
 
-void NinecraftApp::init()
+void NinecraftApp::_initRenderMaterials()
 {
-	Mth::initMth();
+	mce::RenderMaterial::InitContext();
 
-	if (!_hasInitedStatics)
-	{
-		_hasInitedStatics = true;
-		Material::initMaterials();
-		EntityTypeDescriptor::initDescriptors(); // custom
-		MobCategory::initMobCategories();
-		Tile::initTiles();
-		Item::initItems();
-		Biome::initBiomes();
-		//TileEntity::initTileEntities();
-	}
-
-	initGLStates();
-	Tesselator::instance.init();
-	platform()->initSoundSystem();
-	Minecraft::init();
-
-#ifdef DEMO
-	m_pLevelStorageSource = new MemoryLevelStorageSource;
-#else
-	m_pLevelStorageSource = new ExternalFileLevelStorageSource(m_externalStorageDir);
-#endif
-
-	field_D9C = 0;
-
-	setScreen(new StartMenuScreen);
+	mce::RenderMaterialGroup::common.loadList("materials/common.json");
+	_reloadFancy(getOptions()->m_fancyGraphics.get());
 }
 
-void NinecraftApp::onGraphicsReset()
+void NinecraftApp::_initInput()
 {
-	initGLStates();
-	Tesselator::instance.init();
-	Minecraft::onGraphicsReset();
+	m_bIsTouchscreen = AppPlatform::singleton()->isTouchscreen();
+
+	resetInputMethod();
+
+	getOptions()->loadControls();
+	reloadInput();
 }
 
-void NinecraftApp::teardown()
-{
-
-}
-
-void NinecraftApp::update()
-{
-	++m_fps;
-	Multitouch::commit();
-	Minecraft::update();
-	Mouse::reset2();
-	updateStats();
-}
-
-void NinecraftApp::updateStats()
+void NinecraftApp::_updateStats()
 {
 	/*
 	int timeMs = getTimeMs();
@@ -151,6 +139,273 @@ void NinecraftApp::updateStats()
 		m_fps = 0;
 	}
 	*/
+}
+
+void NinecraftApp::_reloadTextures()
+{
+	TextureData* pTexture;
+	pTexture = m_pTextures->loadAndBindTexture(C_TERRAIN_NAME, true);
+	GetPatchManager()->PatchTextures(*pTexture, TYPE_TERRAIN);
+	pTexture = m_pTextures->loadAndBindTexture(C_ITEMS_NAME, true);
+	GetPatchManager()->PatchTextures(*pTexture, TYPE_ITEMS);
+
+	GetPatchManager()->PatchTiles();
+}
+
+void NinecraftApp::_reloadFancy(bool isFancy)
+{
+	std::string listPath = isFancy ? "materials/fancy.json" : "materials/sad.json";
+	mce::RenderMaterialGroup::switchable.loadList(listPath);
+}
+
+void NinecraftApp::_reloadOptionalFeatures()
+{
+	// Optional features that you really should be able to get away with not including.
+	Screen::setIsMenuPanoramaAvailable(Resource::hasTexture("gui/background/panorama_0.png"));
+	LevelRenderer::setAreCloudsAvailable(Resource::hasTexture("environment/clouds.png"));
+	LevelRenderer::setArePlanetsAvailable(Resource::hasTexture("terrain/sun.png") && Resource::hasTexture("terrain/moon.png"));
+	GrassColor::setIsAvailable(Resource::hasTexture("misc/grasscolor.png"));
+	FoliageColor::setIsAvailable(Resource::hasTexture("misc/foliagecolor.png"));
+	Gui::setIsVignetteAvailable(Resource::hasTexture("misc/vignette.png"));
+	EntityRenderer::setAreShadowsAvailable(Resource::hasTexture("misc/shadow.png"));
+}
+
+void NinecraftApp::_reloadPatchData()
+{
+	std::string patchData;
+	Resource::load("patches/patch_data.txt", patchData);
+	GetPatchManager()->LoadPatchData(patchData);
+}
+
+void NinecraftApp::_initAll()
+{
+	Mth::initMth();
+	_initResourceLoaders();
+
+	if (!_hasInitedStatics)
+	{
+		_hasInitedStatics = true;
+		Material::initMaterials();
+		EntityTypeDescriptor::initDescriptors(); // custom
+		SpawnEggItem::initTypes();
+		MobCategory::initMobCategories();
+		MobFactory::initMobLists();
+		TileEntityFactory::initTileEntities();
+		Tile::initTiles();
+		Item::initItems();
+		Biome::initBiomes();
+	}
+
+	_initOptions();
+	setupRenderer();
+	_initRenderMaterials();
+	_initTextures();
+	Minecraft::init();
+	Tesselator::instance.init();
+
+#ifdef DEMO
+	m_pLevelStorageSource = new MemoryLevelStorageSource;
+#else
+	m_pLevelStorageSource = new ExternalFileLevelStorageSource(AppPlatform::singleton()->m_externalStorageDir);
+#endif
+
+	_initInput();
+
+	m_pGui = new Gui(this);
+	m_pFont = new Font(getOptions(), "font/default.png", m_pTextures);
+	m_pLevelRenderer = new LevelRenderer(this, m_pTextures);
+	m_pGameRenderer = new GameRenderer(this);
+	m_pParticleEngine = new ParticleEngine(m_pLevel, m_pTextures);
+	m_pUser = new User(getOptions()->m_playerName.get(), "");
+
+	AppPlatform::singleton()->initSoundSystem();
+	m_pSoundEngine = new SoundEngine(AppPlatform::singleton()->getSoundSystem(), SOUND_MAX_DISTANCE);
+	m_pSoundEngine->init(getOptions());
+
+	Language::singleton().init(getOptions());
+	LoadingTipManager::singleton().init();
+	SplashManager::singleton().init(m_pUser->m_name);
+
+	field_D9C = 0;
+
+	if (getOptions()->getUiTheme() == UI_CONSOLE)
+	{
+		setScreen(new AutosaveWarningScreen_Console(m_pScreen));
+	}
+	else
+	{
+		gotoMainMenu();
+	}
+
+	LogoRenderer::singleton().build(Gui::GuiWidth);
+}
+
+bool NinecraftApp::handleBack(bool b)
+{
+	if (m_bPreparingLevel)
+		return true;
+
+	if (!m_pLevel)
+	{
+		if (!m_pScreen)
+			return false;
+
+		return m_pScreen->onBack(b);
+	}
+
+	if (b)
+		return true;
+
+	if (!m_pScreen)
+	{
+		pauseGame();
+		return false;
+	}
+
+	if (m_pScreen->onBack(b))
+		return true;
+
+	if (isGamePaused())
+	{
+		resumeGame();
+		return true;
+	}
+
+	m_pScreen->onClose();
+	return true;
+}
+
+int NinecraftApp::getFpsIntlCounter()
+{
+	int ofps = m_fps;
+	m_fps = 0;
+	return ofps;
+}
+
+void NinecraftApp::onAppResumed()
+{
+	// Needs to be called before materials are reloaded
+	mce::RenderContext& renderContext = mce::RenderContextImmediate::get();
+	renderContext.lostContext();
+	
+	Tesselator::instance.init();
+    
+	m_pTextures->clear();
+	m_pTextures->setupAtlases(true);
+	_reloadTextures();
+	m_pFont->onGraphicsReset();
+    
+	if (m_pGameRenderer)
+		m_pGameRenderer->onGraphicsReset();
+    
+	EntityRenderDispatcher::getInstance()->onGraphicsReset();
+}
+
+void NinecraftApp::onAppFocusLost()
+{
+    //releaseMouse();
+}
+
+void NinecraftApp::onAppFocusGained()
+{
+    //if (getScreen()->shouldStealMouse())
+    //    grabMouse();
+}
+
+void NinecraftApp::onAppSuspended()
+{
+    m_pTextures->unloadAll();
+    mce::Mesh::clearGlobalBuffers();
+}
+
+void NinecraftApp::init()
+{
+	// We have no way to debug with libXenon, and aborting will kill our logs
+#ifdef XENON
+	try
+	{
+		_initAll();
+	}
+	catch (...)
+	{
+		LOG_E("NinecraftApp encountered an exception during initialization!");
+		exit(EXIT_FAILURE);
+	}
+#else
+	_initAll();
+#endif
+}
+
+void NinecraftApp::setupRenderer()
+{
+	mce::GlobalConstantBufferManager::createInstance();
+	mce::GlobalConstantBuffers::createInstance();
+	if (mce::ConstantBufferMetaDataManager::createInstance())
+	{
+#ifdef FEATURE_GFX_SHADERS
+		mce::ConstantBufferMetaDataManager& metaDataManager = mce::ConstantBufferMetaDataManager::getInstance();
+		std::string fileContents;
+		Resource::load("shaders/uniforms.json", fileContents);
+		metaDataManager.loadJsonFile(fileContents);
+#endif
+	}
+	mce::RenderDevice::createInstance();
+	mce::GlobalConstantBufferManager::getInstance().allocateAndSetupConstantBuffersFromMetadata(mce::RenderContextImmediate::get());
+}
+
+void NinecraftApp::onGraphicsReset()
+{
+	AppPlatform& platform = *AppPlatform::singleton();
+
+	platform._fireAppSuspended();
+	platform._fireAppResumed();
+}
+
+void NinecraftApp::teardown()
+{
+	AppPlatform& platform = *AppPlatform::singleton();
+	SoundSystem& soundSystem = *platform.getSoundSystem();
+
+	TileEntityFactory::teardownTileEntities();
+	teardownRenderer();
+	Resource::teardownLoaders();
+	// Stop our SoundSystem before we nuke our sound buffers and cause it to implode
+	soundSystem.stopEngine();
+}
+
+void NinecraftApp::teardownRenderer()
+{
+	mce::GlobalConstantBuffers::deleteInstance();
+	mce::GlobalConstantBufferManager::deleteInstance();
+}
+
+void NinecraftApp::reloadFancy(bool isFancy)
+{
+	if (!m_pLevelRenderer)
+		return;
+
+	m_pLevelRenderer->allChanged();
+	EntityRenderDispatcher::instance->onAppSuspended();
+	_reloadFancy(isFancy);
+}
+
+void NinecraftApp::update()
+{
+	++m_fps;
+
+	Multitouch::commit();
+
+	GameControllerHandler* pControllerHandler = AppPlatform::singleton()->getGameControllerHandler();
+	if (pControllerHandler)
+	{
+		pControllerHandler->refresh();
+	}
+
+	Minecraft::update();
+
+	Mouse::reset2();
+
+	_updateStats();
 }
 
 NinecraftApp::NinecraftApp()

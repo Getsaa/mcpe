@@ -13,6 +13,7 @@ IMoveInput::IMoveInput() :
 	m_vertInput(0.0f),
 	m_bWasJumping(false),
 	m_bJumping(false),
+	m_bFlyUp(false),
 	m_bSneaking(false)
 {
 }
@@ -29,7 +30,7 @@ void IMoveInput::render(float f)
 {
 }
 
-void IMoveInput::setKey(int eventKey, bool eventKeyState)
+void IMoveInput::setKey(UserActionID, bool eventKeyState)
 {
 }
 
@@ -39,4 +40,9 @@ void IMoveInput::setScreenSize(int width, int height)
 
 void IMoveInput::tick(Player* pPlayer)
 {
+	if (m_bSneaking)
+	{
+		m_horzInput = m_horzInput * 0.3f;
+		m_vertInput = m_vertInput * 0.3f;
+	}
 }

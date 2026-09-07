@@ -8,70 +8,54 @@
 
 #pragma once
 
+#include <vector>
+#include <map>
+
+#include "common/math/Color.hpp"
 #include "world/phys/Vec3.hpp"
 #include "world/phys/Vec2.hpp"
+#include "world/phys/Rot2.hpp"
 #include "world/phys/AABB.hpp"
 #include "world/level/Material.hpp"
 #include "world/level/levelgen/chunk/ChunkPos.hpp"
 #include "world/tile/Tile.hpp"
-#include "world/item/ItemInstance.hpp"
+#include "world/item/ItemStack.hpp"
+#include "world/level/DimensionId.hpp"
 #include "SynchedEntityData.hpp"
 #include "EntityTypeDescriptor.hpp"
-#include "common/Utils.hpp"
 
 class Level;
 class Player;
-class ItemInstance;
+class ItemStack;
 class ItemEntity;
-
-enum eEntityRenderType
-{
-	RENDER_NONE,
-	RENDER_DYNAMIC,
-	RENDER_TNT,
-	RENDER_HUMANOID,
-	RENDER_ITEM,
-	RENDER_CAMERA,
-	RENDER_CHICKEN,
-	RENDER_COW,
-	RENDER_PIG,
-	RENDER_SHEEP,
-	RENDER_SHEEP_FUR,
-	RENDER_ZOMBIE,
-	RENDER_SKELETON,
-	RENDER_SPIDER,
-	RENDER_CREEPER,
-	RENDER_ROCKET,
-
-	// custom
-	RENDER_FALLING_TILE = 50,
-};
+class TileSource;
+class Dimension;
 
 struct EntityPos
 {
 	Vec3 m_pos;
-	Vec2 m_rot;
+	Rot2 m_rot;
 	bool m_bHasRot, m_bHasPos;
 
 	EntityPos()
-		: m_pos(Vec3::ZERO), m_rot(Vec2::ZERO)
+		: m_pos(Vec3::ZERO), m_rot(Rot2::ZERO)
 	{
         m_bHasRot = false; m_bHasPos = false;
 	};
 
 	EntityPos(const Vec3& pos)
-		: m_pos(pos), m_rot(Vec2::ZERO)
+		: m_pos(pos), m_rot(Rot2::ZERO)
 	{
 		m_bHasPos = true; m_bHasRot = false;
 	}
 
-	EntityPos(const Vec2& rot)
+	EntityPos(const Rot2& rot)
 		: m_pos(Vec3::ZERO), m_rot(rot)
 	{
 		m_bHasPos = false; m_bHasRot = true;
 	}
 
-	EntityPos(const Vec3& pos, const Vec2& rot)
+	EntityPos(const Vec3& pos, const Rot2& rot)
 		: m_pos(pos), m_rot(rot)
 	{
 		m_bHasPos = true; m_bHasRot = true;
@@ -80,26 +64,100 @@ struct EntityPos
 
 class Entity
 {
+protected:
+	typedef int8_t SharedFlag;
+public:
+	typedef int32_t ID;
+	typedef int32_t AuxValue;
+	typedef std::vector<Entity*> Vector;
+	typedef std::map<Entity::ID, Entity*> IdMap;
+public:
+	class EventType
+	{
+	public:
+		typedef int8_t ID;
+		enum
+		{
+			NONE,
+			JUMP,
+			HURT,
+			DEATH,
+			START_ATTACKING,
+			STOP_ATTACKING
+		};
+	};
+	// Was called EntityRendererId in PE
+	enum RenderType
+	{
+		RENDER_NONE,
+		RENDER_DYNAMIC,
+		RENDER_TNT,
+		RENDER_HUMANOID,
+		RENDER_ITEM,
+		RENDER_THROWN_EGG,
+		RENDER_SNOWBALL,
+		RENDER_CAMERA,
+		RENDER_CHICKEN,
+		RENDER_COW,
+		RENDER_PIG,
+		RENDER_SHEEP,
+		RENDER_SHEEP_FUR,
+		RENDER_ZOMBIE,
+		RENDER_SKELETON,
+		RENDER_SPIDER,
+		RENDER_CREEPER,
+		RENDER_ROCKET,
+		RENDER_ARROW,
+		RENDER_GIANT,
+		RENDER_SLIME,
+		RENDER_FISHING_HOOK,
+		RENDER_GHAST,
+		RENDER_FIREBALL,
+		RENDER_SQUID,
+
+		// custom
+		RENDER_FALLING_TILE = 50
+	};
+	enum Flags
+	{
+		FLAG_ON_FIRE,
+		FLAG_SNEAKING,
+		FLAG_RIDING,
+		FLAG_SPRINTING,
+		FLAG_USING_ITEM,
+		FLAGS_COUNT
+	};
+
 private:
 	void _init();
 public:
 	Entity() { _init(); }
-	Entity(Level*);
+	Entity(TileSource& tileSource);
 	virtual ~Entity();
+
+public:
+	virtual bool getSharedFlag(SharedFlag flag) const;
+	virtual void setSharedFlag(SharedFlag flag, bool value);
+	virtual void playStepSound(const TilePos& pos, TileID tileId);
+
+public:
 	virtual void reset();
 	virtual void setLevel(Level*);
 	virtual void removed();
+	virtual const Vec3& getPos() const;
 	virtual void setPos(const Vec3& pos);
 	virtual void remove();
-	virtual int move(const Vec3& pos);
-	virtual void moveTo(const Vec3& pos, const Vec2& rot = Vec2::ZERO);
-	virtual void absMoveTo(const Vec3& pos, const Vec2& rot = Vec2::ZERO);
+	virtual void move(const Vec3& posIn);
+	virtual void moveTo(const Vec3& pos);
+	virtual void moveTo(const Vec3& pos, const Rot2& rot);
+	virtual void absMoveTo(const Vec3& pos);
+	virtual void absMoveTo(const Vec3& pos, const Rot2& rot);
 	virtual void moveRelative(const Vec3& pos);
 	virtual void lerpTo(const Vec3& pos);
-	virtual void lerpTo(const Vec3& pos, const Vec2& rot, int i);
+	virtual void lerpTo(const Vec3& pos, const Rot2& rot, int steps = 3);
 	virtual void lerpMotion(const Vec3& pos);
-	virtual void turn(const Vec2& rot);
-	virtual void interpolateTurn(const Vec2& rot);
+	virtual void turn(const Rot2& rot);
+	virtual void interpolateTurn(const Rot2& rot);
 	virtual void tick();
 	virtual void baseTick();
 	virtual bool intersects(const Vec3& min, const Vec3& max) const;
@@ -107,56 +165,94 @@ public:
 	virtual bool isFree(const Vec3& off, float expand) const;
 	virtual bool isInWall() const;
 	virtual bool isInWater();
+	bool wasInWater() const { return m_bWasInWater; }
 	virtual bool isInLava() const;
 	virtual bool isUnderLiquid(Material*) const;
 	virtual float getHeadHeight() const { return 0.0f; }
 	virtual float getShadowHeightOffs() const { return m_bbHeight / 2.0f; }
 	virtual float getBrightness(float f) const;
-	virtual float distanceTo(Entity*) const;
+	virtual DimensionId getDimensionId() const { return m_dimensionId; }
+	virtual Vec3 getInterpolatedPosition(float f) const;
+	virtual Rot2 getInterpolatedRotation(float f) const;
+	virtual Vec3 getViewVector(float f) const;
+	virtual AuxValue getAuxValue() const;
+	virtual void setAuxValue(AuxValue value);
+	virtual float distanceTo(const Entity*) const;
 	virtual float distanceToSqr(const Vec3& pos) const;
 	virtual float distanceTo(const Vec3& pos) const;
-	virtual float distanceToSqr(Entity*) const;
-	virtual int interactPreventDefault();
+	virtual float distanceToSqr(const Entity*) const;
+	virtual bool interactPreventDefault() const;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Woverloaded-virtual"
 	virtual bool interact(Player*);
+#pragma GCC diagnostic pop
 	virtual void playerTouch(Player*);
 	virtual void push(Entity*);
 	virtual void push(const Vec3& pos);
 	virtual bool isPickable() const { return false; }
 	virtual bool isPushable() const { return false; }
 	virtual bool isShootable() const { return false; }
-	virtual bool isSneaking() const { return false; }
+	virtual bool isOnFire() const { return m_fireTicks > 0 || getSharedFlag(FLAG_ON_FIRE); }
+	virtual bool isRiding() const { return getRiding() || getSharedFlag(FLAG_RIDING); }
+	virtual bool isSneaking() const { return getSharedFlag(FLAG_SNEAKING); }
+	virtual void setSneaking(bool value) { setSharedFlag(FLAG_SNEAKING, value); }
 	virtual bool isAlive() const { return m_bRemoved; }
-	virtual bool isOnFire() const { return m_fireTicks > 0; }
 	virtual bool isPlayer() const { return false; }
+	virtual bool isMob() const { return false; }
+	virtual bool interpolateOnly() const { return false; }
 	virtual bool isCreativeModeAllowed() const { return false; }
 	virtual bool shouldRender(Vec3& camPos) const;
 	virtual bool shouldRenderAtSqrDistance(float distSqr) const;
 	virtual bool hurt(Entity*, int);
 	virtual void animateHurt();
 	virtual float getPickRadius() const { return 0.1f; }
-	virtual ItemEntity* spawnAtLocation(ItemInstance*, float);
+	virtual Vec3 getLookAngle() const { return Vec3::ZERO; }
+	virtual ItemEntity* spawnAtLocation(const ItemStack&, float);
 	virtual ItemEntity* spawnAtLocation(int, int);
 	virtual ItemEntity* spawnAtLocation(int, int, float);
 	virtual void awardKillScore(Entity* pKilled, int score);
 	virtual void setEquippedSlot(int, int, int);
-	virtual void setRot(const Vec2& rot);
+	virtual void setRot(const Rot2& rot, bool rebound = false);
 	virtual void setSize(float rad, float height);
 	virtual void setPos(EntityPos*);
-	virtual void resetPos();
+	virtual void resetPos(bool respawn = false);
 	virtual void outOfWorld();
-	virtual void checkFallDamage(float f, bool b);
-	virtual void causeFallDamage(float f);
+	virtual void checkFallDamage(float ya, bool onGround);
+	virtual void causeFallDamage(float ya);
 	virtual void markHurt();
 	virtual void burn(int);
 	virtual void lavaHurt();
-	virtual int queryEntityRenderer();
+	virtual RenderType queryEntityRenderer() const;
+	virtual const AABB* getCollideBox() const;
+	virtual AABB* getCollideAgainstBox(Entity* ent) const;
+	virtual void rideTick();
+	virtual void handleInsidePortal();
+	virtual void handleEntityEvent(EventType::ID eventId);
+	//virtual void thunderHit(LightningBolt*);
+	virtual void positionRider();
+	virtual void ride(Entity*);
+	virtual float getRideHeight() const { return m_bbHeight * 0.75f; }
+	virtual float getRidingHeight() const { return m_heightOffset; }
+	Entity* getRiding() const;
+	Entity* getRider() const;
+	void setRiding(Entity* ent);
+	void setRider(Entity* ent);
+	void load(const CompoundTag& tag);
+	bool save(CompoundTag& tag) const;
+	void saveWithoutId(CompoundTag& tag) const;
+	virtual void addAdditionalSaveData(CompoundTag& tag) const;
+	virtual void readAdditionalSaveData(const CompoundTag& tag);
 	// Removed by Mojang. See https://stackoverflow.com/questions/962132/why-is-a-call-to-a-virtual-member-function-in-the-constructor-a-non-virtual-call
 	//virtual void defineSynchedData();
+	EntityType::ID getEncodeId() const;
+	Entity::ID hashCode() const { return m_EntityID; }
 
 	const EntityTypeDescriptor& getDescriptor() const { return *m_pDescriptor; }
+	SynchedEntityData& getEntityData() { return m_entityData; }
 	const SynchedEntityData& getEntityData() const { return m_entityData; }
-
-	int hashCode() const { return m_EntityID; }
+	Level& getLevel() const { return *m_pLevel; }
+	TileSource& getTileSource() const { return *m_pTileSource; }
+	Dimension& getDimension() const;
 
 	bool operator==(const Entity& other) const;
 
@@ -168,62 +264,70 @@ public:
 			(m_pos.z - pos.z) * (m_pos.z - pos.z);
 	}
 
-public:
-	static int entityCounter;
-	static Random sharedRandom;
+private:
+	Entity::ID m_ridingId;
+	Entity::ID m_riderId;
 
+protected:
+	SynchedEntityData m_entityData;
+	bool m_bMakeStepSound;
+	const EntityTypeDescriptor* m_pDescriptor;
+	TileSource* m_pTileSource;
+
+public:
 	Vec3 m_pos;
 	bool m_bInAChunk;
 	ChunkPos m_chunkPos;
 	int m_chunkPosY;
-	int field_20; // unused Vec3?
-	int field_24;
-	int field_28;
-	int m_EntityID;
-	float field_30;
+	Entity::ID m_EntityID;
+	float m_viewScale;
+	DimensionId m_dimensionId;
+	bool m_bRiding;
 	bool m_bBlocksBuilding;
 	Level* m_pLevel;
-	Vec3 m_oPos; // "o" in Java or "xo" ""yo" "zo"
+	Vec3 m_oPos; // "o" in Java or "xo" "yo" "zo"
 	Vec3 m_vel;
-	Vec2 m_rot;
-	//maybe these are the actual m_yaw and m_pitch, and
-	//the one I annotated are the destination yaw and pitch.
-	//interpolateTurn doesn't modify them, so I highly suspect
-	//this to be the case.
-	Vec2 m_rotPrev;
+	Rot2 m_rot;
+	Rot2 m_oRot; // "RotO" in Java or "xRotO" "yRotO"
+	Rot2 m_rideRot;
+	Color m_tintColor;
 	AABB m_hitbox;
-	bool m_onGround;
+	bool m_bOnGround;
 	bool m_bHorizontalCollision;
-	bool field_7E;
-	bool field_7F;
+	bool m_bCollision;
+	bool m_bVerticalCollision;
 	bool m_bHurt;
-	uint8_t field_81;
+	bool m_bIsInWeb;
+	uint8_t m_bSlide;
 	bool m_bRemoved;
+	bool m_bIsInvisible;
+	bool m_bForceRemove;
 	float m_heightOffset;
 	float m_bbWidth;
 	float m_bbHeight;
-	float field_90;
+	float m_walkDistO;
 	float m_walkDist;
 	Vec3 m_posPrev;
 	float m_ySlideOffset;
-	float field_A8;
+	float m_footSize;
 	bool m_bNoPhysics;
-	float field_B0;
+	float m_pushthrough;
 	int m_tickCount;
-	int field_B8;
+	int m_invulnerableTime;
 	int m_airCapacity;
-	int m_fireTicks;
+	int16_t m_fireTicks;
 	int m_flameTime;
-	int field_C8;  // @NOTE: Render type? (eEntityRenderType)
+	RenderType m_renderType;
 	float m_distanceFallen; // Supposed to be protected
-	int m_airSupply;
-	uint8_t field_D4;
-	bool field_D5;
-	bool field_D6;
+	int16_t m_airSupply;
+	bool m_bWasInWater;
+	bool m_bFireImmune;
+	bool m_bFirstTick;
 	int m_nextStep;
+	float m_minBrightness;
+	bool m_bCanBeDeleted;
 
-	protected:
-		SynchedEntityData m_entityData;
-		bool m_bMakeStepSound;
-		const EntityTypeDescriptor* m_pDescriptor;
+public:
+	static Entity::ID entityCounter;
+	static Random sharedRandom;
 };

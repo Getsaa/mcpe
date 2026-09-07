@@ -8,88 +8,148 @@
 
 #pragma once
 
+#include <vector>
 #include "common/Random.hpp"
+#include "common/Utils.hpp"
 #include "world/level/TilePos.hpp"
 
-class Level;
+class TileSource;
 
 class Feature
 {
 public:
 	virtual ~Feature();
-	virtual bool place(Level*, Random*, const TilePos& pos) = 0;
+	virtual bool place(TileSource&, Random*, const TilePos& pos) = 0;
 	virtual void init(float, float, float);
 };
 
 class TreeFeature : public Feature
 {
 public:
-	bool place(Level*, Random*, const TilePos& pos) override;
+	bool place(TileSource&, Random*, const TilePos& pos) override;
 };
 
 class BirchFeature : public Feature
 {
 public:
-	bool place(Level*, Random*, const TilePos& pos) override;
+	bool place(TileSource&, Random*, const TilePos& pos) override;
 };
 
 class SpruceFeature : public Feature
 {
 public:
-	bool place(Level*, Random*, const TilePos& pos) override;
+	bool place(TileSource&, Random*, const TilePos& pos) override;
 };
 
 class PineFeature : public Feature
 {
 public:
-	bool place(Level*, Random*, const TilePos& pos) override;
+	bool place(TileSource&, Random*, const TilePos& pos) override;
+};
+
+class FancyTreeFeature : public Feature
+{
+public:
+	FancyTreeFeature();
+	virtual ~FancyTreeFeature();
+	void generateBranchesAndTrunk();
+	void crossection(int x, int y, int z, float radius, uint8_t majorAxis, TileID tileId);
+	float treeShape(int offset);
+	float foliageShape(int layerOffset);
+	void foliageCluster(int x, int y, int z);
+	void limb(const TilePos& start, const TilePos& end, TileID tileId);
+	bool trimBranches(int heightOffset);
+	void makeTrunk();
+	int checkLine(const TilePos& startPos, const TilePos& endPos);
+	bool checkLocation(TileSource& source);
+	void init(float density, float widthScale, float foliageDensity) override;
+	bool place(TileSource&, Random*, const TilePos& pos) override;
+
+private:
+	Random m_rnd;
+	TileSource* m_pTileSource;
+	TilePos m_origin;
+	int m_height;
+	int m_trunkHeight;
+	float m_trunkHeightScale;
+	float m_branchSlope;
+	float m_widthScale;
+	float m_foliageDensity;
+	int m_trunkWidth;
+	int m_heightVariance;
+	int m_foliageHeight;
 };
 
 class FlowerFeature : public Feature
 {
 public:
-	FlowerFeature(int id);
-	bool place(Level*, Random*, const TilePos& pos) override;
+	FlowerFeature(TileID id);
+	bool place(TileSource&, Random*, const TilePos& pos) override;
 
 private:
-	int m_ID;
+	TileID m_ID;
 };
 
 class SpringFeature : public Feature
 {
 public:
-	SpringFeature(int id);
-	bool place(Level*, Random*, const TilePos& pos) override;
+	SpringFeature(TileID id);
+	bool place(TileSource&, Random*, const TilePos& pos) override;
 
 private:
-	int m_ID;
+	TileID m_ID;
 };
 
 class ClayFeature : public Feature
 {
 public:
-	ClayFeature(int id, int count);
-	bool place(Level*, Random*, const TilePos& pos) override;
+	ClayFeature(TileID id, int count);
+	bool place(TileSource&, Random*, const TilePos& pos) override;
 
 private:
-	int m_ID;
+	TileID m_ID;
 	int m_count;
 };
 
 class OreFeature : public Feature
 {
 public:
-	OreFeature(int id, int count);
-	bool place(Level*, Random*, const TilePos& pos) override;
+	OreFeature(TileID id, int count);
+	bool place(TileSource&, Random*, const TilePos& pos) override;
 
 private:
-	int m_ID;
+	TileID m_ID;
 	int m_count;
 };
 
 class ReedsFeature : public Feature
 {
 public:
-	bool place(Level*, Random*, const TilePos& pos) override;
+	bool place(TileSource&, Random*, const TilePos& pos) override;
 };
+
+class VegetationFeature : public Feature
+{
+public:
+	VegetationFeature(TileID id, TileData data, int count = 128);
+	bool place(TileSource&, Random*, const TilePos& pos) override;
+
+private:
+	TileID m_ID;
+	TileData m_data;
+	int m_count;
+};
+
+class CactusFeature : public Feature
+{
+public:
+	bool place(TileSource&, Random*, const TilePos& pos) override;
+};
+
+class PumpkinFeature : public Feature
+{
+public:
+	bool place(TileSource&, Random*, const TilePos& pos) override;
+};
+
 

@@ -1,0 +1,55 @@
+#include "TallGrass.hpp"
+#include "world/level/TileSource.hpp"
+#include "world/level/levelgen/biome/BiomeSource.hpp"
+#include "client/renderer/PatchManager.hpp"
+#include "client/renderer/FoliageColor.hpp"
+#include "client/renderer/GrassColor.hpp"
+
+TallGrass::TallGrass(TileID id, int texture) : Bush(id, texture)
+{
+	setShape(0.1f, 0.0f, 0.1f, 0.9f, 0.8f, 0.9f);
+
+	m_bBiomeColors = false;
+}
+
+bool TallGrass::isValidGrowTile(const TileID tile) const
+{
+	return tile == Tile::grass->m_ID;
+}
+
+int TallGrass::getResource(TileData data, Random* random) const
+{
+	return random->nextInt(8) == 0 ? Item::seeds->m_itemID : 0;
+}
+
+Color TallGrass::getColor(TileSource& source, const TilePos& pos) const
+{
+	if (GrassColor::isAvailable() && m_bBiomeColors)
+	{
+		BiomeSource& biomeSource = *source.getBiomeSource();
+		biomeSource.getBiomeBlock(pos, 1, 1);
+		return GrassColor::get(biomeSource.field_4[0], biomeSource.field_8[0]);
+	}
+
+	if (GetPatchManager()->IsGrassTinted())
+	{
+		return 0x339933;
+	}
+
+	return Color::WHITE;
+}
+
+Color TallGrass::getColor(Facing::Name face, TileData data) const
+{
+	return data == 0 ? Color::WHITE : GrassColor::get(1.0f, 0.5f); // @PARITY-JAVA: should be 0xFF7CBD6B on b1.8, before that, nothing;
+}
+
+int TallGrass::getTexture(Facing::Name face, TileData data) const
+{
+	return data == 1 ? m_TextureFrame : (data == 2 ? m_TextureFrame + 16 + 1 : (data == 1 ? m_TextureFrame : m_TextureFrame + 16));
+}
+
+eRenderShape TallGrass::getRenderShape() const
+{
+	return SHAPE_RANDOM_CROSS;
+}

@@ -15,7 +15,8 @@ class BookshelfTile : public Tile
 public:
 	BookshelfTile(int ID, int texture, Material*);
 
+public:
 	int getTexture(Facing::Name face) const override;
-	int getResource(int data, Random* random) const override;
+	int getResource(TileData data, Random* random) const override;
 	int getResourceCount(Random* random) const override;
 };

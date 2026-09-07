@@ -18,6 +18,7 @@ public:
 
 	AABB();
 	AABB(Vec3 min, Vec3 max);
+	AABB(Vec3, float); // TODO!!!
 	AABB(float minX, float minY, float minZ, float maxX, float maxY, float maxZ);
 
 public:
@@ -33,15 +34,23 @@ public:
 	bool intersect(const AABB& other) const;
 
 	// @NOTE: Names for `move`, `grow` and `expand` were taken from really early minecraft (rd-132211 to be exact).
-	void move(const Vec3& vec);
-	void move(float x, float y, float z);
+	AABB& move(const Vec3& vec);
+	AABB& move(float x, float y, float z);
 	// same thing
-	void grow(const Vec3& vec);
-	void grow(float x, float y, float z);
+	AABB& grow(const Vec3& vec);
+	AABB& grow(float x, float y, float z);
 	// same thing
-	void grow(float x);
-	void expand(float x, float y, float z);
-	void expand(const Vec3& vec);
+	AABB& grow(float x);
+	AABB& expand(float x, float y, float z);
+	AABB& expand(const Vec3& vec);
 	bool contains(const Vec3& v) const;
+
+	AABB& shrink(const Vec3& vec)
+	{
+		min += vec;
+		max -= vec;
+		return *this;
+	}
+	AABB& shrink(float x, float y, float z) { return shrink(Vec3(x, y, z)); }
 };
 

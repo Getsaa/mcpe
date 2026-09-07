@@ -11,6 +11,7 @@
 #include "../GuiComponent.hpp"
 #include "client/app/Minecraft.hpp"
 
+// @TODO: Renamed to RolledSelectionListH in 0.2.1
 class RolledSelectionList : public GuiComponent
 {
 public:
@@ -18,7 +19,7 @@ public:
 	virtual int getItemAtPosition(int, int);
 	virtual bool capXPosition();
 	virtual void tick();
-	virtual void render(int mouseX, int mouseY, float);
+	virtual void render(const MenuPointer& pointer, float);
 	virtual void renderHoleBackground(float y1, float y2, int a, int b);
 	virtual void setRenderSelection(bool);
 	virtual void setComponentSelected(bool);
@@ -31,8 +32,11 @@ public:
 	virtual void renderItem(int, int, int, int, Tesselator&) = 0;
 	virtual void renderHeader(int, int, Tesselator&);
 	virtual void renderBackground() = 0;
-	virtual void renderDecorations(int x, int y);
+	virtual void renderDecorations(const MenuPointer& pointer);
 	virtual void clickedHeader(int, int);
+	virtual void checkInput(const MenuPointer& pointer, float f);
+	virtual void renderScrollBackground();
+	virtual void handleScrollWheel(float force);
 
 	int getItemAtXPositionRaw(int x);
 

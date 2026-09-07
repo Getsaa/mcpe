@@ -8,25 +8,56 @@
 
 #include "Player.hpp"
 #include "world/level/Level.hpp"
+#include "nbt/CompoundTag.hpp"
 
-Player::Player(Level* pLevel, GameType playerGameType) : Mob(pLevel)
+static const Color _playerColors[] = {
+	0xFF000000,
+	0xFF33CC33,
+	0xFFCC3333,
+	0xFF3333CC,
+	0xFFCC33CC,
+	0xFFCC6633,
+	0xFFCCCC33,
+	0xFF33DCCC,
+};
+static const size_t _playerColorsCount = sizeof(_playerColors) / sizeof(Color);
+
+void Player::_init()
 {
+	m_itemInUseDuration = 0;
+
+	m_score = 0;
+	m_oBob = 0.0f;
+	m_bob = 0.0f;
+	m_dmgSpill = 0;
+	m_color = _playerColors[0];
+	m_dimension = DIMENSION_OVERWORLD;
+	m_bFlying = false;
+	m_jumpTriggerTime = 0;
+	m_destroyingBlock = false;
+	m_pFishing = nullptr;
+
+	m_abilities.bCanFly = false;
+	m_abilities.bInvulnerable = false;
+}
+
+Player::Player(Level& level, GameType playerGameType) : Mob(level)
+{
+	_init();
 	m_pDescriptor = &EntityTypeDescriptor::player;
 	m_pInventory = nullptr;
-	field_B94 = 0;
-	m_score = 0;
-    m_oBob = 0.0f;
-    m_bob = 0.0f;
+	m_userType = 0;
 	m_name = "";
-	field_BC4 = 0;
-	m_bHaveRespawnPos = false;
-	m_destroyingBlock = false;
+	m_bHasRespawnPos = false;
 
-	field_C8 = RENDER_HUMANOID;
+	m_renderType = RENDER_HUMANOID;
 
 	setPlayerGameType(playerGameType);
 
 	m_pInventory = new Inventory(this);
+
+	m_pInventoryMenu = new InventoryMenu(m_pInventory);
+	m_pContainerMenu = m_pInventoryMenu;
 
 	setDefaultHeadHeight();
 
@@ -34,7 +65,7 @@ Player::Player(Level* pLevel, GameType playerGameType) : Mob(pLevel)
 
 	moveTo(Vec3(pos.x + 0.5f, pos.y + 1.0f, pos.z + 0.5f));
 
-	m_health = 20;
+	m_health = getMaxHealth();
 
 	m_class = "humanoid";
 	m_texture = "mob/char.png";
@@ -45,19 +76,37 @@ Player::Player(Level* pLevel, GameType playerGameType) : Mob(pLevel)
 
 Player::~Player()
 {
+	delete m_pInventoryMenu;
 	delete m_pInventory;
+}
+
+void Player::reallyDrop(ItemEntity* pEnt)
+{
+	m_pLevel->addEntity(pEnt);
+}
+
+void Player::_handleOpenedContainerMenu()
+{
 }
 
 void Player::reset()
 {
 	Mob::reset();
+	_init();
+}
 
-	// TODO what fields to reset???
+void Player::remove()
+{
+	m_bIsInvisible = true;
+	Mob::remove();
+	m_pInventoryMenu->removed(*this);
+	if (m_pContainerMenu)
+		m_pContainerMenu->removed(*this);
 }
 
 bool Player::hurt(Entity* pEnt, int damage)
 {
-	if (isCreative())
+	if (m_abilities.bInvulnerable)
 		return false;
     
     m_noActionTime = 0;
@@ -66,31 +115,44 @@ bool Player::hurt(Entity* pEnt, int damage)
         return false;
     }
     
-    EntityTypeDescriptor entDesc = pEnt->getDescriptor();
-    
-    if (entDesc.hasCategory(EntityCategories::MONSTER) || entDesc.hasCategory(EntityCategories::ABSTRACT_ARROW))
-    {
-        switch (m_pLevel->m_difficulty)
-        {
-            case 0:
-                damage = 0;
-                break;
-            case 1:
-                damage = damage / 3 + 1;
-                break;
-            case 2:
-                // Don't modify damage
-                break;
-            case 3:
-                damage = damage * 3 / 2;
-                break;
-            default:
-                assert(!"Unknown difficulty value");
-                break;
-        }
-    }
+	if (pEnt != nullptr)
+	{
+		EntityTypeDescriptor entDesc = pEnt->getDescriptor();
+
+		if (entDesc.hasCategory(EntityCategories::MONSTER) || entDesc.hasCategory(EntityCategories::ABSTRACT_ARROW))
+		{
+			switch (m_pLevel->m_difficulty)
+			{
+				case 0:
+					damage = 0;
+					break;
+				case 1:
+					damage = damage / 3 + 1;
+					break;
+				case 2:
+					// Don't modify damage
+					break;
+				case 3:
+					damage = damage * 3 / 2;
+					break;
+				default:
+					assert(!"Unknown difficulty value");
+					break;
+			}
+		}
+	}
 
     return damage == 0 ? false : Mob::hurt(pEnt, damage);
+}
+
+void Player::actuallyHurt(int damage)
+{
+	int damageReduction = 25 - m_pInventory->getArmorValue();
+	int totalDamage = damage * damageReduction + m_dmgSpill;
+	m_pInventory->hurtArmor(damage);
+	damage = totalDamage / 25;
+	m_dmgSpill = totalDamage % 25;
+	Mob::actuallyHurt(damage);
 }
 
 void Player::awardKillScore(Entity* pKilled, int score)
@@ -98,15 +160,18 @@ void Player::awardKillScore(Entity* pKilled, int score)
 	m_score += score;
 }
 
-void Player::resetPos()
+void Player::resetPos(bool respawn)
 {
 	setDefaultHeadHeight();
 	setSize(0.6f, 1.8f);
 
 	Entity::resetPos();
-
-	m_health = 20;
-	field_110 = 0;
+	m_bIsInvisible = false;
+	if (respawn)
+	{
+		m_deathTime = 0;
+		m_health = getMaxHealth();
+	}
 }
 
 void Player::die(Entity* pCulprit)
@@ -116,14 +181,24 @@ void Player::die(Entity* pCulprit)
 	setPos(m_pos); // update hitbox
 	m_vel.y = 0.1f;
 
-	if (m_name == "Notch")
-		drop(new ItemInstance(Item::apple), true);
-	m_pInventory->dropAll();
+	if (!m_pLevel->m_bIsClientSide)
+	{
+		if (m_name == "Notch")
+			drop(ItemStack(Item::apple), true);
+	}
+
+#ifndef FEATURE_SERVER_INVENTORIES
+	// don't drop items on the server, leave it to SendInventoryPacket
+	if (m_pLevel->m_bIsClientSide)
+#endif
+#if NETWORK_PROTOCOL_VERSION <= 3
+	m_pInventory->dropAll(m_pLevel->m_bIsClientSide);
+#endif
 
 	if (pCulprit)
 	{
-		m_vel.x = -0.1f * Mth::cos(float((m_hurtDir + m_rot.x) * M_PI / 180.0));
-		m_vel.z = -0.1f * Mth::cos(float((m_hurtDir + m_rot.x) * M_PI / 180.0));
+		m_vel.x = -0.1f * Mth::cos(float((m_hurtDir + m_rot.yaw) * M_PI / 180.0));
+		m_vel.z = -0.1f * Mth::cos(float((m_hurtDir + m_rot.yaw) * M_PI / 180.0));
 	}
 	else
 	{
@@ -134,8 +209,11 @@ void Player::die(Entity* pCulprit)
 
 void Player::aiStep()
 {
+	if (m_jumpTriggerTime > 0)
+		m_jumpTriggerTime--;
+
     if (m_pLevel->m_difficulty == 0 &&
-        m_health < 20 &&
+        m_health < getMaxHealth() &&
         m_tickCount % 20 * 12 == 0)
     {
        heal(1);
@@ -145,14 +223,16 @@ void Player::aiStep()
     m_pInventory->tick();
 #endif
 	m_oBob = m_bob;
-    //Mob::aiStep(); // called in Java, calling here results in 2x speed player movement
+
+	//Mob::aiStep(); // @PARITY: not called in PE, instead called in LocalPlayer, called regardless in Java
+
 	float velLen = Mth::sqrt(m_vel.x * m_vel.x + m_vel.z * m_vel.z);
 	float velYAtan = Mth::atan(m_vel.y * -0.2f), x1 = 0.0f;
 
 	if (velLen > 0.1f)
 		velLen = 0.1f;
 
-	if (!m_onGround)
+	if (!m_bOnGround)
 	{
 		if (m_health > 0)
 		{
@@ -177,35 +257,126 @@ void Player::aiStep()
 	AABB scanAABB = m_hitbox;
 	scanAABB.grow(1, 1, 1);
 
-	EntityVector ents = m_pLevel->getEntities(this, scanAABB);
+	std::vector<Entity*> ents = m_pTileSource->getEntities(this, scanAABB);
 
-	for (EntityVector::iterator it = ents.begin(); it != ents.end(); it++)
+	for (std::vector<Entity*>::iterator it = ents.begin(); it != ents.end(); it++)
 	{
 		Entity* pEnt = *it;
 		if (pEnt->m_bRemoved)
 			continue;
 
-		touch(pEnt);
+		touch(*pEnt);
 	}
+
+	// only needed for non-local players for some reason
+	updateAttackAnim();
+}
+
+void Player::tick()
+{
+	Mob::tick();
+
+	if (!m_pLevel->m_bIsClientSide)
+	{
+		if (m_pContainerMenu && !m_pContainerMenu->stillValid(*this))
+			closeContainer();
+	}
+}
+
+const ItemStack& Player::getCarriedItem() const
+{
+	// This only gets the first row slot
+	/*ItemStack* item = m_pInventory->getItem(m_pInventory->m_selectedStackId);
+  
+	if (ItemStack::isNull(item))
+		return nullptr;
+
+	return item;*/
+
+	return m_pInventory->getSelected();
 }
 
 void Player::updateAi()
 {
-	if (m_bSwinging)
+}
+
+void Player::addAdditionalSaveData(CompoundTag& tag) const
+{
+	Mob::addAdditionalSaveData(tag);
+
+	ListTag* inventoryTag = new ListTag();
+	m_pInventory->save(*inventoryTag);
+	tag.put("Inventory", inventoryTag);
+
+	tag.putInt32("playerGameType", getPlayerGameType());
+	tag.putInt32("Dimension", m_dimension);
+
+	// Why would we save the player's sleep state? If they leave the game, just wake them up.
+	/*tag.putBoolean("Sleeping", m_bSleeping);
+	tag.putShort("SleepTimer", m_sleepTimer);
+	if (m_bSleeping)
 	{
-		m_swingTime++;
-		if (m_swingTime >= 8)
-		{
-			m_swingTime = 0;
-			m_bSwinging = false;
-		}
+		setBedSleepPos(m_pos);
+		wake(true, true, false);
+	}*/
+
+	if (m_bHasRespawnPos)
+	{
+		tag.putInt32("SpawnX", m_respawnPos.x);
+		tag.putInt32("SpawnY", m_respawnPos.y);
+		tag.putInt32("SpawnZ", m_respawnPos.z);
 	}
-	else
+}
+
+void Player::readAdditionalSaveData(const CompoundTag& tag)
+{
+	Mob::readAdditionalSaveData(tag);
+
+	// Needs to load before Inventory, since Inventory won't load if Player is in creative mode
+	if (tag.contains("playerGameType"))
 	{
-		m_swingTime = 0;
+		setPlayerGameType((GameType)tag.getInt32("playerGameType"));
 	}
 
-	m_attackAnim = m_swingTime / 8.0f;
+	if (tag.contains("Inventory"))
+		m_pInventory->load(*tag.getList("Inventory"));
+
+	m_dimension = (DimensionId)tag.getInt32("Dimension");
+	//m_sleepTimer = tag.getInt32("SleepTimer");
+
+	if (tag.contains("SpawnX") && tag.contains("SpawnY") && tag.contains("SpawnZ"))
+	{
+		setRespawnPos(TilePos(	static_cast<int>(tag.getInt32("SpawnX")),
+								static_cast<int>(tag.getInt32("SpawnY")),
+								static_cast<int>(tag.getInt32("SpawnZ"))));
+	}
+}
+
+void Player::travel(const Vec2& pos)
+{
+	// Normal movement
+	if (!m_bFlying)
+	{
+		Mob::travel(pos);
+		return;
+	}
+
+	// Flight movement
+	float yd = m_vel.y;
+	float oldFlyingFriction = m_flyingFriction;
+
+	m_flyingFriction = 0.05f;
+	Mob::travel(pos);
+	
+	m_flyingFriction = oldFlyingFriction;
+	m_vel.y = yd * 0.6;
+}
+
+void Player::causeFallDamage(float level)
+{
+	// There is absolutely no reason for this to be causing the bone cracking sound in creative mode.
+	if (!m_abilities.bInvulnerable)
+		Mob::causeFallDamage(level);
 }
 
 void Player::animateRespawn()
@@ -223,21 +394,75 @@ void Player::animateRespawn(Player*, Level*)
 
 }
 
-void Player::attack(Entity* pEnt)
+void Player::attack(Entity& entity)
 {
-	int atkDmg = m_pInventory->getAttackDamage(pEnt);
-	if (atkDmg > 0)
-		pEnt->hurt(this, atkDmg);
+	int atkDmg = m_pInventory->getAttackDamage(entity);
+	if (atkDmg <= 0)
+		return;
+
+	if (m_vel.y < 0.0f)
+		atkDmg++;
+
+	entity.hurt(this, atkDmg);
+	
+	ItemStack& item = getSelectedItem();
+	bool isMob = entity.getDescriptor().hasCategory(EntityCategories::MOB);
+	if (!item.isEmpty() && isMob)
+	{
+		item.hurtEnemy((Mob&)entity, *this);
+		if (item.m_count <= 0)
+		{
+			item.snap(*this);
+			removeSelectedItem();
+		}
+	}
+
+	// Needs to be uncommented if/when wolves are implemented
+	/*
+	if (isMob && entity.isAlive())
+	{
+		alertWolves(static_cast<Mob&>(entity), true);
+	}
+	*/
+}
+
+void Player::useItem(ItemStack& item) const
+{
+	if (!isCreative())
+		item.shrink(1);
+}
+
+void Player::releaseUsingItem()
+{
+	if (!m_itemInUse.isEmpty())
+		m_itemInUse.releaseUsing(*m_pLevel, *this, m_itemInUseDuration);
+
+	stopUsingItem();
+}
+
+void Player::stopUsingItem()
+{
+	m_itemInUse.setEmpty();
+	m_itemInUseDuration = 0;
+
+	if (!m_pLevel->m_bIsClientSide)
+	{
+		if (isUsingItem())
+			setSharedFlag(C_PLAYER_FLAG_USING_ITEM, false);
+	}
 }
 
 bool Player::canDestroy(const Tile* pTile) const
 {
-	return true;
-}
+	// If the tile's material does not need tool check then allow destroy regardless of equipped item
+	if (pTile->m_pMaterial->isMineable())
+		return true;
 
-void Player::closeContainer()
-{
+	ItemStack& item = getSelectedItem();
+	if (!item.isEmpty())
+		return item.canDestroySpecial(pTile);
 
+	return false;
 }
 
 void Player::displayClientMessage(const std::string& msg)
@@ -245,28 +470,113 @@ void Player::displayClientMessage(const std::string& msg)
 
 }
 
-void Player::drop(const ItemInstance* pItemInstance, bool b)
+float Player::getDestroySpeed(const Tile* tile) const
 {
-	if (pItemInstance->isNull())
+	float speed = 1.0f;
+	
+	ItemStack& item = getSelectedItem();
+	if (!item.isEmpty())
+	{
+		// Original multiplies but there's no need since you're just multiplying by 1 on the first check.
+		speed = item.getDestroySpeed(tile);
+	}
+
+	// Speed penalty for being underwater
+	if (isUnderLiquid(Material::water))
+	{
+		speed /= 5.0f;
+	}
+
+	// Speed penalty for jumping/falling
+	if (!m_bOnGround)
+	{
+		speed /= 5.0f;
+	}
+
+	return speed;
+}
+
+int Player::getInventorySlot(int x) const
+{
+	return 0;
+}
+
+// Randomly generates a Player's color based on their name
+static const Color& _getPlayerColor(const std::string& name)
+{
+	Random random(Util::hashCode(name));
+	size_t colorIdx = random.nextInt(_playerColorsCount - 1);
+	return _playerColors[colorIdx];
+}
+
+void Player::setName(const std::string& name)
+{
+	m_name = name;
+	m_color = _getPlayerColor(name);
+}
+
+void Player::prepareCustomTextures()
+{
+
+}
+
+void Player::respawn()
+{
+
+}
+
+void Player::rideTick()
+{
+	Mob::rideTick();
+	m_oBob = m_bob;
+	m_bob = 0.0f;
+}
+
+void Player::setDefaultHeadHeight()
+{
+	m_heightOffset = 1.62f;
+}
+
+void Player::setRespawnPos(const TilePos& pos)
+{
+	/*if (!pos)
+	{
+		m_bHasRespawnPos = false;
+		return;
+	}*/
+
+	m_bHasRespawnPos = true;
+	m_respawnPos = pos;
+}
+
+// @PARITY-PE: From b1.2_02, doesn't exist in PE
+void Player::drop()
+{
+	drop(m_pInventory->removeItem(m_pInventory->getSelectedSlotNo(), 1));
+}
+
+void Player::drop(const ItemStack& item, bool randomly)
+{
+	if (item.isEmpty())
 		return;
 
-	ItemEntity* pItemEntity = new ItemEntity(m_pLevel, Vec3(m_pos.x, m_pos.y - 0.3f + getHeadHeight(), m_pos.z), pItemInstance);
-	pItemEntity->field_E4 = 40;
+	ItemEntity* pItemEntity = new ItemEntity(*m_pTileSource, Vec3(m_pos.x, m_pos.y - 0.3f + getHeadHeight(), m_pos.z), item);
+	pItemEntity->m_throwTime = 40;
 
-	if (b)
+	if (randomly)
 	{
 		float throwPower = 0.5f * m_random.nextFloat();
 		float throwAngle = m_random.nextFloat();
 
 		pItemEntity->m_vel.x = -(throwPower * Mth::sin(2 * float(M_PI) * throwAngle));
-		pItemEntity->m_vel.z =  (throwPower * Mth::cos(2 * float(M_PI) * throwAngle));
+		pItemEntity->m_vel.z = (throwPower * Mth::cos(2 * float(M_PI) * throwAngle));
 		pItemEntity->m_vel.y = 0.2f;
 	}
 	else
 	{
-		pItemEntity->m_vel.x = -(Mth::sin(m_rot.x / 180.0f * float(M_PI)) * Mth::cos(m_rot.y / 180.0f * float(M_PI))) * 0.3f;
-		pItemEntity->m_vel.z =  (Mth::cos(m_rot.x / 180.0f * float(M_PI)) * Mth::cos(m_rot.y / 180.0f * float(M_PI))) * 0.3f;
-		pItemEntity->m_vel.y = 0.1f - Mth::sin(m_rot.y / 180.0f * float(M_PI)) * 0.3f;
+		pItemEntity->m_vel.x = -(Mth::sin(m_rot.yaw / 180.0f * float(M_PI)) * Mth::cos(m_rot.pitch / 180.0f * float(M_PI))) * 0.3f;
+		pItemEntity->m_vel.z = (Mth::cos(m_rot.yaw / 180.0f * float(M_PI)) * Mth::cos(m_rot.pitch / 180.0f * float(M_PI))) * 0.3f;
+		pItemEntity->m_vel.y = 0.1f - Mth::sin(m_rot.pitch / 180.0f * float(M_PI)) * 0.3f;
 
 		float f1 = m_random.nextFloat();
 		float f2 = m_random.nextFloat();
@@ -279,61 +589,14 @@ void Player::drop(const ItemInstance* pItemInstance, bool b)
 	reallyDrop(pItemEntity);
 }
 
-void Player::drop()
-{
-
-}
-
-int Player::getInventorySlot(int x) const
-{
-	return 0;
-}
-
-void Player::prepareCustomTextures()
-{
-
-}
-
-void Player::reallyDrop(ItemEntity* pEnt)
-{
-	m_pLevel->addEntity(pEnt);
-}
-
-void Player::respawn()
-{
-
-}
-
-void Player::rideTick()
-{
-
-}
-
-void Player::setDefaultHeadHeight()
-{
-	m_heightOffset = 1.62f;
-}
-
-void Player::setRespawnPos(const TilePos& pos)
-{
-	/*if (!pos)
-	{
-		m_bHaveRespawnPos = false;
-		return;
-	}*/
-
-	m_bHaveRespawnPos = true;
-	m_respawnPos = pos;
-}
-
 void Player::startCrafting(const TilePos& pos)
 {
-
+	_handleOpenedContainerMenu();
 }
 
 void Player::startStonecutting(const TilePos& pos)
 {
-
+	_handleOpenedContainerMenu();
 }
 
 void Player::startDestroying()
@@ -346,22 +609,67 @@ void Player::stopDestroying()
 	m_destroyingBlock = false;
 }
 
-void Player::take(Entity* pEnt, int x)
+void Player::openFurnace(FurnaceTileEntity* tileEntity)
 {
-
+	_handleOpenedContainerMenu();
 }
 
-void Player::touch(Entity* pEnt)
+void Player::openContainer(Container* container)
 {
-	pEnt->playerTouch(this);
+	_handleOpenedContainerMenu();
 }
 
-void Player::interact(Entity* pEnt)
+void Player::closeContainer()
 {
-	pEnt->interact(this);
 }
 
-ItemInstance* Player::getSelectedItem() const
+void Player::openTrap(DispenserTileEntity* tileEntity)
+{
+	_handleOpenedContainerMenu();
+}
+
+void Player::touch(Entity& entity)
+{
+	entity.playerTouch(this);
+}
+
+void Player::interact(Entity& entity)
+{
+	if (entity.interact(this))
+		return;
+
+	bool isMob = entity.getDescriptor().hasCategory(EntityCategories::MOB);
+	if (!isMob)
+		return;
+
+	ItemStack& item = getSelectedItem();
+	if (!item.isEmpty())
+	{
+		item.interactEnemy(static_cast<Mob&>(entity));
+		if (item.m_count <= 0)
+		{
+			item.snap(*this);
+			removeSelectedItem();
+		} 
+	} 
+}
+
+void Player::setPlayerGameType(GameType playerGameType)
+{
+	_playerGameType = playerGameType;
+
+	bool elevatedPrivs = (playerGameType == GAME_TYPE_CREATIVE || playerGameType == GAME_TYPE_SPECTATOR);
+
+	m_abilities.bCanFly = elevatedPrivs;
+	m_abilities.bInvulnerable = elevatedPrivs;
+}
+
+ItemStack& Player::getSelectedItem() const
 {
 	return m_pInventory->getSelected();
+}
+
+void Player::removeSelectedItem()
+{
+	m_pInventory->setSelectedItem(ItemStack::EMPTY);
 }

@@ -10,37 +10,39 @@
 #include "Player.hpp"
 #include "world/level/Level.hpp"
 
-TripodCamera::TripodCamera(Level* level, Player* player, const Vec3& pos) : Mob(level)
+#define C_TIMER 80
+
+TripodCamera::TripodCamera(Entity& owner)
+	: Mob(owner.getTileSource())
+	, m_owner(owner)
 {
-	field_B8C = 0;
-	field_B90 = 80;
-	m_bActive = false;
+	m_countdown = C_TIMER;
+	m_bActivated = false;
 
-	m_owner = player;
-	field_C8 = RENDER_CAMERA;
+	m_renderType = RENDER_CAMERA;
 
-	m_rotPrev = m_rot = player->m_rot;
+	m_oRot = m_rot = owner.m_rot;
 
     m_bBlocksBuilding = true;
 
 	setSize(1.0f, 1.5f);
 	m_heightOffset = m_bbHeight * 0.5f - 0.25f;
 
-	setPos(pos);
-	m_oPos = pos;
+	setPos(owner.m_pos);
+	m_oPos = owner.m_pos;
 	m_bMakeStepSound = false;
 }
 
 bool TripodCamera::interact(Player* player)
 {
 	// @BUG-ish: No check for owner?
-	m_bActive = true;
+	m_bActivated = true;
 	return true;
 }
 
-int TripodCamera::interactPreventDefault()
+bool TripodCamera::interactPreventDefault() const
 {
-	return 1;
+	return true;
 }
 
 void TripodCamera::tick()
@@ -51,33 +53,29 @@ void TripodCamera::tick()
 	move(m_vel);
 
 	m_vel *= 0.98f;
-	if (m_onGround)
+	if (m_bOnGround)
 	{
 		m_vel.x *= 0.7f;
 		m_vel.z *= 0.7f;
 		m_vel.y *= -0.5f;
 	}
 
-	if (!m_bActive)
+	if (!m_bActivated)
 		return;
 
-	field_B90--;
-	if (field_B90 == 0)
+	m_countdown--;
+	if (m_countdown == 0)
 	{
 		remove();
-		return;
 	}
-
-	if (field_B90 == 8)
+	else if (m_countdown == 8)
 	{
-		m_pLevel->takePicture(this, m_owner);
+		m_pLevel->takePicture(this, &m_owner);
 		m_pLevel->addParticle("explode", Vec3(m_pos.x, m_pos.y + 0.6f, m_pos.z));
 		m_pLevel->addParticle("explode", Vec3(m_pos.x, m_pos.y + 0.8f, m_pos.z));
 		m_pLevel->addParticle("explode", Vec3(m_pos.x, m_pos.y + 1.0f, m_pos.z));
-		return;
 	}
-
-	if (field_B90 > 8)
+	else if (m_countdown > 8)
 	{
 		m_pLevel->addParticle("smoke", Vec3(m_pos.x, m_pos.y + 1.0f, m_pos.z));
 	}

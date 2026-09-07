@@ -7,7 +7,6 @@
  ********************************************************************/
 
 #include "WorldSelectionList.hpp"
-#include "common/Utils.hpp"
 
 static float WorldSelectionList_Static1(float a, float b, float c, float d)
 {
@@ -46,7 +45,7 @@ void WorldSelectionList::tick()
 {
 	RolledSelectionList::tick();
 	field_D0++;
-	if (Mouse::isButtonDown(BUTTON_LEFT) || !field_28)
+	if (Mouse::isButtonDown(MOUSE_BUTTON_LEFT) || !field_28)
 		return;
 
 	m_selectedIndex = -1;
@@ -108,7 +107,7 @@ void WorldSelectionList::selectItem(int index, bool b)
 {
 	if (m_selectedIndex >= 0 && m_selectedIndex == index && !field_90)
 	{
-		field_90 = 1;
+		field_90 = true;
 		m_levelSummary = m_items[index];
 	}
 }
@@ -135,33 +134,43 @@ void WorldSelectionList::touched()
 
 void WorldSelectionList::renderItem(int index, int xPos, int yPos, int width, Tesselator& t)
 {
+    constexpr int yPadding = -4;
+    yPos += yPadding; // Move up
+    
 	int xCenter = xPos + m_itemWidth / 2;
-	float mult = Mth::Max(1.1f - 0.0055f * float(abs(field_18 / 2 - xCenter)), 0.2f);
-	if (mult > 1.0f)
-		mult = 1.0f;
+	float mult = Mth::clamp(1.1f - 0.0055f * float(abs(field_18 / 2 - xCenter)), 0.2f, 1.0f);
 
 	int color1 = 0x010101 * int(mult * 255.0f);
 	int color2 = 0x010101 * int(mult * 140.0f);
 
 	std::vector<std::string> details = m_vvs[index];
 
-	drawString(m_pMinecraft->m_pFont, details[0], xCenter + 5 - m_itemWidth / 2, yPos + 50, color1);
-	drawString(m_pMinecraft->m_pFont, details[1], xCenter + 5 - m_itemWidth / 2, yPos + 60, color2);
-	drawString(m_pMinecraft->m_pFont, details[2], xCenter + 5 - m_itemWidth / 2, yPos + 70, color2);
+    int x = xCenter + 5 - m_itemWidth / 2;
 
-	m_pMinecraft->m_pTextures->loadAndBindTexture(m_previewImages[index]);
-	
-	// @NOTE: useless assignment of color
-	t.color(0.3f, 1.0f, 0.2f);
+	Font& font = *m_pMinecraft->m_pFont;
+	Textures& textures = *m_pMinecraft->m_pTextures;
 
-	t.begin();
-	t.color(color1);
+	// Draw name
+	drawString(font, details[0], x, yPos + 50 + yPadding, color1);
+	// Draw other details
+	size_t i = 1;
+	for (; i < details.size()-1; i++)
+	{
+		drawString(font, details[i], x, yPos + (50 + yPadding + (10 * i)), color2);
+	}
+    // Draw storage version
+    drawString(font, details[i], xCenter + 42, yPos + (50 + yPadding + (10 * 3)), color2);
+
+	textures.loadAndBindTexture(m_previewImages[index]);
+
+	t.begin(4);
+	t.color(color1); // may have been 0.3f, 1.0f, 0.2f pre-release
 	float y = float(yPos) - 6.0f;
-	t.vertexUV(float(xCenter - 32), y,         this->field_4, 0.0f, 0.0f);
-	t.vertexUV(float(xCenter - 32), y + 48.0f, this->field_4, 0.0f, 1.0f);
-	t.vertexUV(float(xCenter + 32), y + 48.0f, this->field_4, 1.0f, 1.0f);
-	t.vertexUV(float(xCenter + 32), y,         this->field_4, 1.0f, 0.0f);
-	t.draw();
+	t.vertexUV(float(xCenter - 32), y,         m_blitOffset, 0.0f, 0.0f);
+	t.vertexUV(float(xCenter - 32), y + 48.0f, m_blitOffset, 0.0f, 1.0f);
+	t.vertexUV(float(xCenter + 32), y + 48.0f, m_blitOffset, 1.0f, 1.0f);
+	t.vertexUV(float(xCenter + 32), y,         m_blitOffset, 1.0f, 0.0f);
+	t.draw(m_materials.ui_texture_and_color);
 }
 
 void WorldSelectionList::renderBackground()
@@ -170,21 +179,23 @@ void WorldSelectionList::renderBackground()
 
 void WorldSelectionList::commit()
 {
-	for (int i = 0; i < int(m_items.size()); i++)
+	for (size_t i = 0; i < m_items.size(); i++)
 	{
 		LevelSummary& item = m_items[i];
 
 		// @NOTE: this string stream crap is unused.
 		// Weirdly Java Edition Beta 1.3 did not have world previews, so its interesting to see PE try
-		std::stringstream ss;
-		ss << item.m_levelName << "/preview.png";
+		/*std::stringstream ss;
+		ss << item.m_levelName << "/preview.png";*/
 
-		m_previewImages.push_back("gui/default_world.png");
+		m_previewImages.push_back("pack.png");
 
 		std::vector<std::string> vs;
 		vs.push_back(item.m_levelName);
-		vs.push_back(m_pMinecraft->platform()->getDateString(item.m_lastPlayed));
+		vs.push_back(AppPlatform::singleton()->getDateString(item.m_lastPlayed));
 		vs.push_back(item.m_fileName);
+		vs.push_back(GameTypeConv::GameTypeToNonLocString(item.m_gameType));
+        vs.push_back("V" + Util::toString(item.m_storageVersion));
 		m_vvs.push_back(vs);
 	}
 }

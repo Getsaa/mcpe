@@ -6,18 +6,32 @@
 	SPDX-License-Identifier: BSD-1-Clause
  ********************************************************************/
 
+#include <stdint.h>
+#include <algorithm>
+#include <cctype>
+
 #include "ExternalFileLevelStorage.hpp"
+
+#include "common/Logger.hpp"
+#include "nbt/CompoundTag.hpp"
+#include "nbt/NbtIo.hpp"
+#include "network/RakIO.hpp"
+#include "world/entity/EntityFactory.hpp"
 #include "world/level/Level.hpp"
-#include "GetTime.h"
+#include "world/tile/entity/TileEntity.hpp"
+#include "thirdparty/raknet/GetTime.h"
 
 #ifndef DEMO
 
 #define C_CHUNKS_TO_SAVE_PER_TICK (2)
 
-ExternalFileLevelStorage::ExternalFileLevelStorage(const std::string& a, const std::string& path) :
-	field_8(a),
+ExternalFileLevelStorage::ExternalFileLevelStorage(const std::string& name, const std::string& path, bool forceConversion) :
+	m_levelName(name),
 	m_levelDirPath(path),
-	m_timer(0)
+	m_timer(0),
+	m_storageVersion(LEVEL_STORAGE_VERSION_DEFAULT),
+	m_lastEntitySave(-999999),
+    m_bForceConversion(forceConversion)
 {
 	m_pRegionFile = nullptr;
 	m_pLevel = nullptr;
@@ -28,22 +42,35 @@ ExternalFileLevelStorage::ExternalFileLevelStorage(const std::string& a, const s
 	std::string datPlayer = m_levelDirPath + "/" + "player.dat";
 
 	m_pLevelData = new LevelData;
-	if (!readLevelData(datLevel, m_pLevelData))
+	if (!readLevelData(datLevel, *m_pLevelData))
 	{
 		delete m_pLevelData;
 		m_pLevelData = nullptr;
 		return;
 	}
 
-	readPlayerData(datPlayer, m_pLevelData);
+	m_storageVersion = m_pLevelData->getStorageVersion();
+
+    if (m_storageVersion <= 1)
+    {
+        readPlayerData(datPlayer, *m_pLevelData);
+    }
 }
 
 ExternalFileLevelStorage::~ExternalFileLevelStorage()
 {
-	if (m_pRegionFile)
-		delete m_pRegionFile;
-	if (m_pLevelData)
-		delete m_pLevelData;
+	SAFE_DELETE(m_pRegionFile);
+	SAFE_DELETE(m_pLevelData);
+}
+
+void ExternalFileLevelStorage::_setLevelData(LevelData* levelData)
+{
+	if (m_pLevelData == levelData)
+		return;
+
+	SAFE_DELETE(m_pLevelData);
+
+	m_pLevelData = levelData;
 }
 
 LevelData* ExternalFileLevelStorage::prepareLevel(Level* level)
@@ -57,20 +84,42 @@ ChunkStorage* ExternalFileLevelStorage::createChunkStorage(Dimension* pDim)
 	return this;
 }
 
-void ExternalFileLevelStorage::saveLevelData(LevelData* levelData, std::vector<Player*>& players)
+void ExternalFileLevelStorage::saveLevelData(const std::string& levelPath, LevelData* levelData, const std::vector<Player*>* players)
 {
-	// Uncomment this when using level v2
-	//levelData->setStorageVersion(2);
-	writeLevelData(m_levelDirPath + "/" + "level.dat", levelData);
-	savePlayerData(levelData, players);
+	std::string pathBase = levelPath + "/";
+	std::string pathNew = pathBase + "level.dat_new";
+	std::string path    = pathBase + "level.dat";
+	std::string pathOld = pathBase + "level.dat_old";
 
-	SAFE_DELETE(m_pLevelData);
+#ifndef ENH_DISABLE_FORCED_SAVE_UPGRADES
+    if (m_bForceConversion)
+    {
+        // Forces world to upgrade to new default storage version.
+        levelData->setStorageVersion(LEVEL_STORAGE_VERSION_DEFAULT);
+    }
+#endif
 
-	m_pLevelData = new LevelData(*levelData);
+	writeLevelData(path, *levelData, players);
+
+	if (levelData->getStorageVersion() == 1)
+	{
+		if (players != nullptr)
+			savePlayerData(*levelData, *players);
+	}
+
+	_setLevelData(levelData);
 }
 
-void ExternalFileLevelStorage::savePlayerData(LevelData* levelData, std::vector<Player*>& players)
+void ExternalFileLevelStorage::saveLevelData(LevelData* levelData, const std::vector<Player*>* players)
 {
+	saveLevelData(m_levelDirPath, levelData, players);
+}
+
+void ExternalFileLevelStorage::savePlayerData(LevelData& levelData, const std::vector<Player*>& players)
+{
+	if (levelData.getStorageVersion() > 1)
+		return; // we shouldn't be saving player.dat files for V2 and greater
+
 	if (players.empty())
 		return;
 
@@ -81,7 +130,7 @@ void ExternalFileLevelStorage::savePlayerData(LevelData* levelData, std::vector<
 		return;
 	}
 
-	levelData->m_LocalPlayerData.savePlayer(players[0]);
+	levelData.m_LocalPlayerData.savePlayer(*players[0]);
 
 	int nPlayers = 1;
 	fwrite(&nPlayers, sizeof nPlayers, 1, pFile);
@@ -92,9 +141,135 @@ void ExternalFileLevelStorage::savePlayerData(LevelData* levelData, std::vector<
 	// @NOTE: No reason to swap elementCount and elementSize here. I understood it the
 	// last time - to check whether the data loaded all the way. However, no checks are
 	// done here.
-	fwrite(&levelData->m_LocalPlayerData, 1, nSizePD, pFile);
+	fwrite(&levelData.m_LocalPlayerData, 1, nSizePD, pFile);
 
 	fclose(pFile);
+}
+
+unsigned int getRemainingFileSize(FILE* pFile)
+{
+	long v6 = ftell(pFile);
+	if (fseek(pFile, 0, 2) != 0)
+		return 0;
+
+	long v7 = ftell(pFile);
+	if (fseek(pFile, v6, 0) != 0)
+		return 0;
+
+	return (unsigned int)(v7 - v6);
+}
+
+std::string getPlayerFilename(const std::string& basePath, const std::string& playerName)
+{
+	std::string fileName = playerName;
+	std::transform<std::string::iterator, std::string::iterator, int(int)>
+    (fileName.begin(), fileName.end(), fileName.begin(), std::tolower);
+	fileName = Util::urlEncode(fileName);
+	return basePath + "/players/" + fileName + ".dat";
+}
+
+bool ExternalFileLevelStorage::load(Player& player)
+{
+	std::string fileName = getPlayerFilename(m_levelDirPath, player.getName());
+	FILE* pFile = fopen(fileName.c_str(), "rb");
+	if (!pFile)
+		return false;
+
+	char formatId[4];
+	if (fread(formatId, 1, 4, pFile) != 4)
+	{
+		fclose(pFile);
+		return false;
+	}
+	int formatVersion;
+	if (fread(&formatVersion, 4, 1, pFile) != 1)
+	{
+		fclose(pFile);
+		return false;
+	}
+	unsigned int size;
+	if (fread(&size, 4, 1, pFile) != 1)
+	{
+		fclose(pFile);
+		return false;
+	}
+
+	if (size <= getRemainingFileSize(pFile) && size > 0)
+	{
+		uint8_t* data = new uint8_t[size];
+		if (fread(data, 1, size, pFile) != size)
+		{
+			fclose(pFile);
+			delete[] data;
+			return false;
+		}
+
+		RakNet::BitStream bs(data, size, false);
+		RakDataInput dis = RakDataInput(bs);
+
+		CompoundTag* tag = NbtIo::read(dis);
+		if (tag)
+		{
+			if (tag->getId() == Tag::TAG_TYPE_COMPOUND)
+			{
+				player.load(*tag);
+			}
+
+			tag->deleteChildren();
+			delete tag;
+		}
+
+		if (data)
+			delete[] data;
+	}
+
+	fclose(pFile);
+
+	return false;
+}
+
+bool ExternalFileLevelStorage::save(Player& player)
+{
+	if (player.m_bRemoved)
+		return false;
+
+	RakNet::BitStream bs;
+	RakDataOutput dos = RakDataOutput(bs);
+
+	CompoundTag* tag = new CompoundTag();
+
+	player.saveWithoutId(*tag);
+	NbtIo::write(*tag, dos);
+	tag->deleteChildren();
+
+	unsigned int size = bs.GetNumberOfBytesUsed();
+
+	std::string directory = m_levelDirPath + "/players/";
+	createFolderIfNotExists(directory.c_str());
+
+	std::string fileName = getPlayerFilename(m_levelDirPath, player.getName());
+	std::string tmpFileName = fileName + ".tmp";
+	FILE* pFile = fopen(tmpFileName.c_str(), "wb");
+	if (!pFile)
+		return false;
+
+	int formatVersion = 1; // I'm assuming it's a version number
+	fwrite("PLR", 1, 4, pFile);
+	fwrite(&formatVersion, 4, 1, pFile);
+	fwrite(&size, 4, 1, pFile);
+	fwrite(bs.GetData(), 1, size, pFile);
+	fclose(pFile);
+
+	if (XPL_ACCESS(fileName.c_str(), 0) == 0)
+		remove(fileName.c_str());
+
+	return rename(tmpFileName.c_str(), fileName.c_str()) == 1;
+}
+
+void ExternalFileLevelStorage::saveGame(Level* level)
+{
+	// I don't know why it makes me specify this manually
+	ChunkStorage::saveEntities(level);
 }
 
 void ExternalFileLevelStorage::closeAll()
@@ -155,6 +330,9 @@ void ExternalFileLevelStorage::tick()
 
 		save(m_pLevel, pChunk);
 	}
+
+	if (m_timer - m_lastEntitySave > 1200)
+		saveEntities(m_pLevel, nullptr);
 }
 
 void ExternalFileLevelStorage::flush()
@@ -186,17 +364,17 @@ LevelChunk* ExternalFileLevelStorage::load(Level* level, const ChunkPos& pos)
 	pBitStream->Read((char*)pData, 16 * 16 * 128 * sizeof(TileID));
 
 	LevelChunk* pChunk = new LevelChunk(level, pData, pos);
-	pBitStream->Read((char*)pChunk->m_tileData, 16 * 16 * 128 / 2);
+	pBitStream->Read((char*)pChunk->m_tileData.array, 16 * 16 * 128 / 2);
 
-	if (m_pLevelData->getStorageVersion() >= 1)
+	if (m_storageVersion >= 1)
 	{
-		pBitStream->Read((char*)pChunk->m_lightSky, 16 * 16 * 128 / 2);
-		pBitStream->Read((char*)pChunk->m_lightBlk, 16 * 16 * 128 / 2);
+		pBitStream->Read((char*)pChunk->m_lightSky.array, 16 * 16 * 128 / 2);
+		pBitStream->Read((char*)pChunk->m_lightBlk.array, 16 * 16 * 128 / 2);
 	}
 
 	pBitStream->Read((char*)pChunk->m_updateMap, sizeof pChunk->m_updateMap);
 	
-	delete pBitStream->GetData();
+	delete[] pBitStream->GetData();
 	delete pBitStream;
 
 	pChunk->recalcHeightmap();
@@ -205,6 +383,95 @@ LevelChunk* ExternalFileLevelStorage::load(Level* level, const ChunkPos& pos)
 	pChunk->field_237 = true;
 
 	return pChunk;
+}
+
+void ExternalFileLevelStorage::loadEntities(Level* level, LevelChunk* chunk)
+{
+	m_lastEntitySave = m_timer;
+
+	FILE* pFile = fopen((m_levelDirPath + "/entities.dat").c_str(), "rb");
+	if (!pFile)
+		return;
+
+	char formatId[4];
+	if (fread(formatId, 1, 4, pFile) != 4)
+	{
+		fclose(pFile);
+		return;
+	}
+	int formatVersion;
+	if (fread(&formatVersion, 4, 1, pFile) != 1)
+	{
+		fclose(pFile);
+		return;
+	}
+	unsigned int size;
+	if (fread(&size, 4, 1, pFile) != 1)
+	{
+		fclose(pFile);
+		return;
+	}
+
+	if (size <= getRemainingFileSize(pFile) && size > 0)
+	{
+		uint8_t* data = new uint8_t[size];
+		if (fread(data, 1, size, pFile) != size)
+		{
+			fclose(pFile);
+			delete[] data;
+			return;
+		}
+
+		RakNet::BitStream bs(data, size, false);
+		RakDataInput dis = RakDataInput(bs);
+
+		CompoundTag* tag = NbtIo::read(dis);
+		if (tag)
+		{
+			if (tag->getId() == Tag::TAG_TYPE_COMPOUND)
+			{
+				const ListTag* entitiesTag = tag->getList("Entities");
+				if (entitiesTag)
+				{
+					const std::vector<Tag*>& entities = entitiesTag->rawView();
+					for (std::vector<Tag*>::const_iterator it = entities.begin(); it != entities.end(); it++)
+					{
+						const Tag* betterTag = *it;
+						if (!betterTag || betterTag->getId() != Tag::TAG_TYPE_COMPOUND)
+							continue;
+
+						Entity* entity = EntityFactory::LoadEntity(*(CompoundTag*)betterTag, *level);
+						if (entity)
+							level->addEntity(entity);
+					}
+				}
+
+				const ListTag* tileEntitiesTag = tag->getList("TileEntities");
+				if (tileEntitiesTag)
+				{
+					const std::vector<Tag*>& tileEntities = tileEntitiesTag->rawView();
+					for (std::vector<Tag*>::const_iterator it = tileEntities.begin(); it != tileEntities.end(); it++)
+					{
+						const Tag* betterTag = *it;
+						if (!betterTag || betterTag->getId() != Tag::TAG_TYPE_COMPOUND)
+							continue;
+
+						TileEntity* tileEntity = TileEntity::LoadTileEntity(*(CompoundTag*)betterTag);
+						if (tileEntity)
+							level->setTileEntity(tileEntity->m_pos, tileEntity);
+					}
+				}
+			}
+            
+            tag->deleteChildren();
+            delete tag;
+		}
+
+		if (data)
+			delete[] data;
+	}
+
+	fclose(pFile);
 }
 
 void ExternalFileLevelStorage::save(Level* level, LevelChunk* chunk)
@@ -222,13 +489,13 @@ void ExternalFileLevelStorage::save(Level* level, LevelChunk* chunk)
 	}
 
 	RakNet::BitStream bs;
-	bs.Write((const char*)chunk->m_pBlockData, 16 * 16 * 128 * sizeof(TileID));
-	bs.Write((const char*)chunk->m_tileData,   16 * 16 * 128 / 2);
+	bs.Write((const char*)chunk->m_pBlockData,        16 * 16 * 128 * sizeof(TileID));
+	bs.Write((const char*)chunk->m_tileData.array, chunk->m_tileData.getSize());
 
 	if (m_pLevelData->getStorageVersion() >= 1)
 	{
-		bs.Write((const char*)chunk->m_lightSky, 16 * 16 * 128 / 2);
-		bs.Write((const char*)chunk->m_lightBlk, 16 * 16 * 128 / 2);
+		bs.Write((const char*)chunk->m_lightSky.array, chunk->m_lightSky.getSize());
+		bs.Write((const char*)chunk->m_lightBlk.array, chunk->m_lightBlk.getSize());
 	}
 
 	bs.Write((const char*)chunk->m_updateMap, sizeof chunk->m_updateMap);
@@ -238,10 +505,59 @@ void ExternalFileLevelStorage::save(Level* level, LevelChunk* chunk)
 
 void ExternalFileLevelStorage::saveEntities(Level* level, LevelChunk* chunk)
 {
-	// no op
+	m_lastEntitySave = m_timer;
+	//getTimeS();
+	ListTag* entitiesTag = new ListTag();
+
+	const Entity::IdMap* entities = level->getAllEntities();
+	for (Entity::IdMap::const_iterator it = entities->begin(); it != entities->end(); it++)
+	{
+		const Entity* entity = it->second;
+		CompoundTag* tag = new CompoundTag();
+
+		if (!entity->save(*tag))
+			continue;
+
+		entitiesTag->add(tag);
+	}
+
+	ListTag* tileEntitiesTag = new ListTag();
+
+	const TileEntity::Vector& tileEntities = level->getAllTileEntities();
+	for (TileEntity::Vector::const_iterator it = tileEntities.begin(); it != tileEntities.end(); it++)
+	{
+		const TileEntity* tileEntity = *it;
+		CompoundTag* tag = new CompoundTag();
+
+		tileEntity->save(*tag);
+		tileEntitiesTag->add(tag);
+	}
+
+	CompoundTag tag = CompoundTag();
+	tag.put("Entities", entitiesTag);
+	tag.put("TileEntities", tileEntitiesTag);
+	RakNet::BitStream bs;
+	RakDataOutput dos = RakDataOutput(bs);
+	NbtIo::write(tag, dos);
+    tag.deleteChildren();
+
+	unsigned int size = bs.GetNumberOfBytesUsed();
+
+	FILE* pFile = fopen((m_levelDirPath + "/entities.dat").c_str(), "wb");
+	if (pFile)
+	{
+		int formatVersion = 1; // I'm assuming it's a version number
+		fwrite("ENT", 1, 4, pFile);
+		fwrite(&formatVersion, 4, 1, pFile);
+		fwrite(&size, 4, 1, pFile);
+		fwrite(bs.GetData(), 1, size, pFile);
+		fclose(pFile);
+	}
+
+	//getTimeS();
 }
 
-bool ExternalFileLevelStorage::readLevelData(const std::string& path, LevelData* pLevelData)
+bool ExternalFileLevelStorage::readLevelData(const std::string& path, LevelData& levelData)
 {
 	FILE* pFile = fopen(path.c_str(), "rb");
 	if (!pFile)
@@ -260,14 +576,21 @@ bool ExternalFileLevelStorage::readLevelData(const std::string& path, LevelData*
 
 	uint8_t* data = new uint8_t[length];
 
-	if (fread(data, sizeof(uint8_t), length, pFile) != length)
+	if (fread(data, sizeof(uint8_t), length, pFile) != (size_t)length)
 	{
 		SAFE_DELETE_ARRAY(data);
 		goto _cleanup;
 	}
 
 	RakNet::BitStream bs(data, length, false);
-	pLevelData->read(bs, version);
+	if (version == 1)
+	{
+		levelData.v1_read(bs, version);
+	}
+	else if (version >= 2)
+	{
+		levelData.read(bs, version);
+	}
 
 	SAFE_DELETE_ARRAY(data);
 	fclose(pFile);
@@ -275,7 +598,7 @@ bool ExternalFileLevelStorage::readLevelData(const std::string& path, LevelData*
 	return true;
 }
 
-bool ExternalFileLevelStorage::readPlayerData(const std::string& path, LevelData* pLevelData)
+bool ExternalFileLevelStorage::readPlayerData(const std::string& path, LevelData& levelData)
 {
 	FILE* pFile = fopen(path.c_str(), "rb");
 	if (!pFile)
@@ -292,8 +615,8 @@ bool ExternalFileLevelStorage::readPlayerData(const std::string& path, LevelData
 	if (nPlayers != 1)
 		goto _cleanup;
 
-	if (fread(&pLevelData->m_LocalPlayerData, 1, sizeof pLevelData->m_LocalPlayerData, pFile) == size)
-		pLevelData->m_nPlayers = nPlayers;
+	if (fread(&levelData.m_LocalPlayerData, 1, sizeof levelData.m_LocalPlayerData, pFile) == (size_t)size)
+		levelData.m_nPlayers = nPlayers;
 
 	fclose(pFile);
 	return true;
@@ -303,16 +626,23 @@ _cleanup:
 	return false;
 }
 
-bool ExternalFileLevelStorage::writeLevelData(const std::string& path, LevelData* pLevelData)
+bool ExternalFileLevelStorage::writeLevelData(const std::string& path, const LevelData& levelData, const std::vector<Player*>* players)
 {
 	FILE* pFile = fopen(path.c_str(), "wb");
 	if (!pFile)
 		return false;
 
 	RakNet::BitStream bs;
-	pLevelData->write(bs);
+	if (levelData.getStorageVersion() == 1)
+	{
+		levelData.v1_write(bs);
+	}
+	else
+	{
+		levelData.write(bs, players);
+	}
 
-	int storageVersion = pLevelData->getStorageVersion();
+	int storageVersion = levelData.getStorageVersion();
 	fwrite(&storageVersion, sizeof(int), 1, pFile);
 
 	int length = bs.GetNumberOfBytesUsed();

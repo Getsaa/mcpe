@@ -8,11 +8,13 @@
 
 #include "DoorTile.hpp"
 #include "world/level/Level.hpp"
+#include "world/level/TileSource.hpp"
 #include "world/item/Item.hpp"
 
 DoorTile::DoorTile(int ID, Material* pMtl) : Tile(ID, pMtl)
 {
 	m_TextureFrame = TEXTURE_DOOR_BOTTOM;
+	m_renderLayer = RENDER_LAYER_ALPHATEST;
 
 	if (pMtl == Material::metal)
 		m_TextureFrame = TEXTURE_DOOR_IRON_BOTTOM;
@@ -20,46 +22,22 @@ DoorTile::DoorTile(int ID, Material* pMtl) : Tile(ID, pMtl)
 	Tile::setShape(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f);
 }
 
-int DoorTile::use(Level* level, const TilePos& pos, Player* player)
+bool DoorTile::use(const TilePos& pos, Player& player)
 {
 	// well, you know, iron doors can't be opened by right clicking
 	if (m_pMaterial == Material::metal)
-		return 1;
+		return true;
 
-	int data = level->getData(pos);
+	TileSource& source = player.getTileSource();
 
-	// if we're the top tile
-	if (data & 8)
-	{
-		if (level->getTile(pos.below()) == m_ID)
-			use(level, pos.below(), player);
-	}
-	else
-	{
-		data ^= 4;
-		if (level->getTile(pos.above()) == m_ID)
-			level->setData(pos.above(), data + 8);
+	setOpen(source, pos, !isOpen(source.getData(pos)), &player);
 
-		level->setData(pos, data);
-
-		// @BUG: marking the wrong tiles as dirty? No problem because setData sends an update immediately anyways
-		level->setTilesDirty(pos.below(), pos);
-
-		std::string snd;
-		if (Mth::random() < 0.5f)
-			snd = "random.door_open";
-		else
-			snd = "random.door_close";
-
-		level->playSound(Vec3(pos) + 0.5f, snd, 1.0f, 0.9f + 0.1f * level->m_random.nextFloat());
-	}
-
-	return 1;
+	return true;
 }
 
-void DoorTile::attack(Level* level, const TilePos& pos, Player* player)
+void DoorTile::attack(const TilePos& pos, Player& player)
 {
-	use(level, pos, player);
+	use(pos, player);
 }
 
 // @HUH: This function has NO references to itself. Not even in the vtable of the tile.
@@ -70,20 +48,20 @@ bool DoorTile::blocksLight() const
 	return false;
 }
 
-HitResult DoorTile::clip(const Level* level, const TilePos& pos, Vec3 v1, Vec3 v2)
+HitResult DoorTile::clip(const TileSource& source, const TilePos& pos, Vec3 v1, Vec3 v2)
 {
 	// @NOTE: Tile::clip calls updateShape too. So this is redundant
-	updateShape(level, pos);
-	return Tile::clip(level, pos, v1, v2);
+	updateShape(source, pos);
+	return Tile::clip(source, pos, v1, v2);
 }
 
-AABB* DoorTile::getAABB(const Level* level, const TilePos& pos)
+AABB* DoorTile::getAABB(const TileSource& source, const TilePos& pos)
 {
-	updateShape(level, pos);
-	return Tile::getAABB(level, pos);
+	updateShape(source, pos);
+	return Tile::getAABB(source, pos);
 }
 
-int DoorTile::getDir(int data) const
+int DoorTile::getDir(TileData data) const
 {
 	if (!isOpen(data))
 		return (data - 1) & 3;
@@ -91,17 +69,17 @@ int DoorTile::getDir(int data) const
 	return data & 3;
 }
 
-int DoorTile::getRenderShape() const
+eRenderShape DoorTile::getRenderShape() const
 {
 	return SHAPE_DOOR;
 }
 
-int DoorTile::getResource(int data, Random* random) const
+int DoorTile::getResource(TileData data, Random* random) const
 {
-	// breaking the top of the tile doesn't drop anything.
-	// In JE, it probably fixed a certain dupe glitch with doors
-	if (isTop(data))
-		return 0;
+	// breaking the top of the tile doesn't drop anything in JE.
+	// It probably fixed a certain dupe glitch with doors
+	// if (isTop(data))
+	// 	return 0;
 
 	if (m_pMaterial == Material::metal)
 		return Item::door_iron->m_itemID;
@@ -109,7 +87,7 @@ int DoorTile::getResource(int data, Random* random) const
 	return Item::door_wood->m_itemID;
 }
 
-int DoorTile::getTexture(Facing::Name face, int data) const
+int DoorTile::getTexture(Facing::Name face, TileData data) const
 {
 	if (face == Facing::DOWN || face == Facing::UP)
 		return m_TextureFrame;
@@ -129,10 +107,10 @@ int DoorTile::getTexture(Facing::Name face, int data) const
 	return idx;
 }
 
-AABB DoorTile::getTileAABB(const Level* level, const TilePos& pos)
+AABB DoorTile::getTileAABB(TileSource& source, const TilePos& pos)
 {
-	updateShape(level, pos);
-	return Tile::getTileAABB(level, pos);
+	updateShape(source, pos);
+	return Tile::getTileAABB(source, pos);
 }
 
 bool DoorTile::isCubeShaped() const
@@ -145,9 +123,9 @@ bool DoorTile::isSolidRender() const
 	return false;
 }
 
-bool DoorTile::mayPlace(const Level* level, const TilePos& pos) const
+bool DoorTile::mayPlace(const TileSource& source, const TilePos& pos) const
 {
-	return pos.y <= 126 && level->isSolidTile(pos.below()) && Tile::mayPlace(level, pos) && Tile::mayPlace(level, pos.above());
+	return pos.y <= 126 && source.isSolidBlockingTile(pos.below()) && Tile::mayPlace(source, pos) && Tile::mayPlace(source, pos.above());
 }
 
 void DoorTile::setShape(int dir)
@@ -171,75 +149,81 @@ void DoorTile::setShape(int dir)
 	}
 }
 
-void DoorTile::updateShape(const LevelSource* level, const TilePos& pos)
+void DoorTile::updateShape(const TileSource& source, const TilePos& pos)
 {
-	setShape(getDir(level->getData(pos)));
+	setShape(getDir(source.getData(pos)));
 }
 
-void DoorTile::setOpen(Level* level, const TilePos& pos, bool bOpen)
+void DoorTile::setOpen(TileSource& source, const TilePos& pos, bool bOpen, Player* pPlayer)
 {
-	int data = level->getData(pos);
+	TileData data = source.getData(pos);
 	if (isTop(data))
 	{
-		if (level->getTile(pos.below()) == m_ID)
-			setOpen(level, pos.below(), bOpen);
+		if (source.getTile(pos.below()) == m_ID)
+			setOpen(source, pos.below(), bOpen, pPlayer);
 		return;
 	}
 
-	if (isOpen(level->getData(pos)) != bOpen)
+	if (isOpen(source.getData(pos)) != bOpen)
 	{
-		if (level->getTile(pos.above()) == m_ID)
-			level->setData(pos.above(), (data ^ 4) + 8);
+		data ^= 4;
 
-		level->setData(pos, data ^ 4);
-		level->setTilesDirty(pos.below(), pos);
+		if (source.getTile(pos.above()) == m_ID)
+			source.setTileAndData(pos.above(), FullTile(this, data + 8), TileChange::UPDATE_ALL | TileChange::UPDATE_UNK3);
 
-		std::string snd;
-		if (Mth::random() < 0.5f)
-			snd = "random.door_open";
-		else
-			snd = "random.door_close";
+		source.setTileAndData(pos, FullTile(this, data), TileChange::UPDATE_ALL | TileChange::UPDATE_UNK3);
 
-		level->playSound(Vec3(pos) + 0.5f, snd, 1.0f, 0.9f + 0.1f * level->m_random.nextFloat());
+		// @BUG: marking the wrong tiles as dirty? No problem because setData sends an update immediately anyways
+		//source.fireTilesDirty(pos.below(), pos);
+
+		Level& level = source.getLevel();
+
+		level.levelEvent(LevelEvent(LevelEvent::SOUND_DOOR, pos, 0, pPlayer));
 	}
 }
 
-void DoorTile::neighborChanged(Level* level, const TilePos& pos, TileID newTile)
+void DoorTile::neighborChanged(TileSource& source, const TilePos& pos, TileID newTile)
 {
-	int isTop = level->getData(pos) & 8;
+	int isTop = source.getData(pos) & 8;
 	if (isTop)
 	{
-		if (level->getTile(pos.below()) != m_ID)
-			level->setTile(pos, TILE_AIR);
+		if (source.getTile(pos.below()) != m_ID)
+		{
+			source.setTile(pos, TILE_AIR);
+			spawnResources(source, pos, source.getData(pos));
+		}
 
 		if (newTile > 0)
 		{
 			if (Tile::tiles[newTile]->isSignalSource())
-				neighborChanged(level, pos.below(), newTile);
+				neighborChanged(source, pos.below(), newTile);
 		}
 
 		return;
 	}
 
-	if (level->getTile(pos.above()) != m_ID)
+	if (source.getTile(pos.above()) != m_ID)
 	{
-		level->setTile(pos, TILE_AIR);
+		source.setTile(pos, TILE_AIR);
 		isTop = 1;
 	}
 
-	if (!level->isSolidTile(pos.below()))
+	if (!source.isSolidBlockingTile(pos.below()))
 	{
-		level->setTile(pos, TILE_AIR);
-		if (level->getTile(pos.above()) == m_ID)
-			level->setTile(pos.above(), TILE_AIR);
+		source.setTile(pos, TILE_AIR);
+		if (source.getTile(pos.above()) == m_ID)
+		{
+			source.setTile(pos.above(), TILE_AIR);
+			spawnResources(source, pos, source.getData(pos));
+		}
 	}
 
 	if (!isTop && newTile > 0 && Tile::tiles[newTile]->isSignalSource())
 	{
 		bool bOpen = false;
-		if (level->hasNeighborSignal(pos) || level->hasNeighborSignal(pos.above()))
+		if (source.hasNeighborSignal(pos) || source.hasNeighborSignal(pos.above()))
 			bOpen = true;
 
-		setOpen(level, pos, bOpen);
+		setOpen(source, pos, bOpen);
 	}
 }

@@ -1,0 +1,79 @@
+#include "DyePowderItem.hpp"
+#include "world/level/Level.hpp"
+#include "world/entity/Player.hpp"
+#include "world/entity/Sheep.hpp"
+#include "world/tile/Tile.hpp"
+#include "world/tile/Sapling.hpp"
+#include "world/tile/CropsTile.hpp"
+#include "world/tile/ClothTile.hpp"
+#include "world/entity/EntityType.hpp"
+#include "world/level/TileSource.hpp"
+#include "DyeColor.hpp"
+
+DyePowderItem::DyePowderItem(int itemID) : Item(itemID)
+{
+	m_bStackedByData = true;
+	m_maxDamage = 0;
+}
+
+int DyePowderItem::getIcon(const ItemStack* itemStack, int layer) const
+{
+	int aux = itemStack ? itemStack->getAuxValue() : 0;
+	return Item::getIcon() + aux % 8 * 16 + aux / 8;
+}
+
+std::string DyePowderItem::getDescriptionId() const
+{
+	return Item::getDescriptionId() + "." + DyeColor::IDS[0];
+}
+
+std::string DyePowderItem::getDescriptionId(ItemStack& item) const
+{
+	return Item::getDescriptionId() + "." + DyeColor::IDS[item.getAuxValue()];
+}
+
+bool DyePowderItem::useOn(ItemStack& item, Player& player, const TilePos& pos, Facing::Name face) const
+{
+    // Aux value 15 is bonemeal
+    if (item.getAuxValue() == 15)
+	{
+		TileSource& source = player.getTileSource();
+		Level& level = player.getLevel();
+
+		TileID tile = source.getTile(pos);
+		
+		if (tile == Tile::sapling->m_ID)
+		{
+			(static_cast<Sapling*>(Tile::sapling))->growTree(source, pos, &level.m_random);
+			item.shrink();
+			return true;
+		}
+		
+		if (tile == Tile::crops->m_ID)
+		{
+			static_cast<CropsTile*>(Tile::crops)->growCropsToMax(source, pos);
+			item.shrink();
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+void DyePowderItem::interactEnemy(ItemStack& item, Mob& mob) const
+{
+	if (!mob.getDescriptor().isType(EntityType::SHEEP))
+        return;
+
+    Sheep& sheep = static_cast<Sheep&>(mob);
+    if (sheep.isSheared())
+        return;
+
+    int color = ClothTile::getColorFromData(item.getAuxValue());
+    
+    if (sheep.getColor() != color)
+    {
+        sheep.setColor(color);
+		item.shrink();
+    }
+}

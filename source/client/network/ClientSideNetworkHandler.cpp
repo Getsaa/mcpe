@@ -8,19 +8,28 @@
 
 #include <RakPeer.h>
 #include "ClientSideNetworkHandler.hpp"
-#include "common/Utils.hpp"
+#include "common/Logger.hpp"
 #include "client/gui/screens/StartMenuScreen.hpp"
 #include "client/gui/screens/DisconnectionScreen.hpp"
+#include "client/multiplayer/MultiPlayerLevel.hpp"
+#include "client/multiplayer/MultiplayerLocalPlayer.hpp"
+#include "network/MinecraftPackets.hpp"
+#include "world/entity/MobFactory.hpp"
+#include "world/entity/EntityFactory.hpp"
+#include "world/entity/PrimedTnt.hpp"
+#include "world/level/Explosion.hpp"
+#include "world/level/TileSource.hpp"
+#include "world/inventory/SimpleContainer.hpp"
+#include "world/tile/entity/FurnaceTileEntity.hpp"
+#include "world/tile/entity/DispenserTileEntity.hpp"
 
 // This lets you make the client shut up and not log events in the debug console.
-#define VERBOSE_CLIENT
+//#define VERBOSE_CLIENT
 
 #if defined(ORIGINAL_CODE) || defined(VERBOSE_CLIENT)
 #define puts_ignorable(str) LOG_I(str)
-#define printf_ignorable(str, ...) LOG_I(str, __VA_ARGS__)
 #else
 #define puts_ignorable(str)
-#define printf_ignorable(str, ...)
 #endif
 
 ClientSideNetworkHandler::ClientSideNetworkHandler(Minecraft* pMinecraft, RakNetInstance* pRakNetInstance)
@@ -29,20 +38,24 @@ ClientSideNetworkHandler::ClientSideNetworkHandler(Minecraft* pMinecraft, RakNet
 	m_pRakNetInstance = pRakNetInstance;
 	m_pServerPeer = m_pRakNetInstance->getPeer();
 	m_chunksRequested = 0;
+	m_chunkCount = 0;
 	m_serverProtocolVersion = 0;
+	m_bUseLevelDataPkt = false;
 	m_pLevel = nullptr;
 	m_field_14 = 0;
 	m_field_24 = 0;
+	clearChunksLoaded();
 }
 
 void ClientSideNetworkHandler::levelGenerated(Level* level)
 {
-	m_pLevel = level;
+	m_pLevel = (MultiPlayerLevel*)level;
 
-#if NETWORK_PROTOCOL_VERSION >= 3
-	ReadyPacket* pReadyPkt = new ReadyPacket(1);
-	m_pRakNetInstance->send(pReadyPkt);
-#endif
+	if (m_serverProtocolVersion >= 3)
+	{
+		ReadyPacket readyPkt(1);
+		m_pRakNetInstance->send(readyPkt);
+	}
 
 	arrangeRequestChunkOrder();
 	requestNextChunk();
@@ -50,17 +63,16 @@ void ClientSideNetworkHandler::levelGenerated(Level* level)
 
 void ClientSideNetworkHandler::onConnect(const RakNet::RakNetGUID& rakGuid) // server guid
 {
+#ifdef VERBOSE_CLIENT
 	RakNet::RakNetGUID localGuid = ((RakNet::RakPeer*)m_pServerPeer)->GetMyGUID();
-	printf_ignorable("onConnect, server guid: %s, local guid: %s", rakGuid.ToString(), localGuid.ToString());
+	LOG_I("onConnect, server guid: %s, local guid: %s", rakGuid.ToString(), localGuid.ToString());
+#endif
 
 	m_serverGUID = rakGuid;
 
-	LoginPacket* pLoginPkt = new LoginPacket;
-	pLoginPkt->m_str = RakNet::RakString(m_pMinecraft->m_pUser->field_0.c_str());
-	pLoginPkt->m_clientNetworkVersion = NETWORK_PROTOCOL_VERSION;
-	pLoginPkt->m_clientNetworkVersion2 = NETWORK_PROTOCOL_VERSION;
-	
-	m_pRakNetInstance->send(pLoginPkt);
+	clearChunksLoaded();
+	LoginPacket loginPkt(m_pMinecraft->m_pUser->m_name, NETWORK_PROTOCOL_VERSION);
+	m_pRakNetInstance->send(loginPkt);
 }
 
 void ClientSideNetworkHandler::onUnableToConnect()
@@ -83,9 +95,9 @@ void ClientSideNetworkHandler::onDisconnect(const RakNet::RakNetGUID& rakGuid)
 	puts_ignorable("onDisconnect");
 
 	if (m_pLevel)
-		m_pLevel->m_bIsMultiplayer = false;
+		m_pLevel->m_bIsClientSide = false;
 
-	m_pMinecraft->m_gui.addMessage("Disconnected from server");
+	m_pMinecraft->m_pGui->addMessage("Disconnected from server");
 }
 
 void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, LoginStatusPacket* pPacket)
@@ -100,6 +112,8 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, LoginSt
 	case LoginStatusPacket::STATUS_SERVER_OUTDATED:
 		m_pMinecraft->setScreen(new DisconnectionScreen("Could not connect: Outdated server!"));
 		break;
+	case LoginStatusPacket::STATUS_SUCCESS:
+		break;
 	}
 }
 
@@ -107,12 +121,12 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, Message
 {
 	puts_ignorable("MessagePacket");
 
-	m_pMinecraft->m_gui.addMessage(pMsgPkt->m_str.C_String());
+	m_pMinecraft->m_pGui->addMessage(pMsgPkt->m_str.C_String());
 }
 
 void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, SetTimePacket* pPacket)
 {
-	puts_ignorable("SetTimePacket");
+	//puts_ignorable("SetTimePacket");
 
 	if (m_pLevel)
 		m_pLevel->setTime(pPacket->m_time);
@@ -122,18 +136,20 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, StartGa
 {
 	puts_ignorable("StartGamePacket");
 
-	m_pMinecraft->getLevelSource()->deleteLevel("_LastJoinedServer");
+	std::string levelName = "_LastJoinedServer";
+	m_pMinecraft->getLevelSource()->deleteLevel(levelName);
 
-	m_pLevel = new Level(
-		m_pMinecraft->getLevelSource()->selectLevel("_LastJoinedServer", true), 
+	LevelSettings settings(pStartGamePkt->m_seed, pStartGamePkt->m_gameType);
+	m_pLevel = new MultiPlayerLevel(
+		m_pMinecraft->getLevelSource()->selectLevel(levelName, true),
 		"temp",
-		pStartGamePkt->m_seed,
+		settings,
 		pStartGamePkt->m_levelVersion);
 
-	m_pLevel->m_bIsMultiplayer = true;
+	m_pLevel->m_bIsClientSide = true;
 
-	GameType gameType = pStartGamePkt->m_gameType != GAME_TYPES_MAX ? pStartGamePkt->m_gameType : m_pLevel->getDefaultGameType();
-	LocalPlayer *pLocalPlayer = new LocalPlayer(m_pMinecraft, m_pLevel, m_pMinecraft->m_pUser, gameType, m_pLevel->m_pDimension->field_50);
+	DimensionId dimensionId = DIMENSION_OVERWORLD;
+	MultiplayerLocalPlayer* pLocalPlayer = new MultiplayerLocalPlayer(m_pMinecraft, *m_pLevel, m_pMinecraft->m_pUser, settings.m_gameType, dimensionId);
 	pLocalPlayer->m_guid = ((RakNet::RakPeer*)m_pServerPeer)->GetMyGUID();
 	pLocalPlayer->m_EntityID = pStartGamePkt->m_entityId;
 	
@@ -141,14 +157,15 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, StartGa
 		pStartGamePkt->m_pos,
 		pLocalPlayer->m_rot);
 
-	if (gameType == GAME_TYPE_CREATIVE)
+	if (settings.m_gameType == GAME_TYPE_CREATIVE)
 		pLocalPlayer->m_pInventory->prepareCreativeInventory();
 	else
 		pLocalPlayer->m_pInventory->prepareSurvivalInventory();
 
 	m_pLevel->setTime(pStartGamePkt->m_time);
 
-	m_serverProtocolVersion = pStartGamePkt->m_serverVersion;
+	// Not replicated even by 0.12.1, not sure where we even got this from...
+	m_serverProtocolVersion = NETWORK_PROTOCOL_VERSION;
 
 	m_pMinecraft->setLevel(m_pLevel, "ClientSideNetworkHandler -> setLevel", pLocalPlayer);
 }
@@ -159,15 +176,19 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, AddPlay
 
 	if (!m_pLevel) return;
 
-	Player* pPlayer = new Player(m_pLevel, m_pLevel->getDefaultGameType());
+	Player* pPlayer = new Player(*m_pLevel, m_pLevel->getDefaultGameType());
 	pPlayer->m_EntityID = pAddPlayerPkt->m_id;
 	m_pLevel->addEntity(pPlayer);
 
+	// If we haven't received a rot, use default player rot
+	if (pAddPlayerPkt->m_rot == Rot2::ZERO)
+		pAddPlayerPkt->m_rot = pPlayer->m_rot;
+
 	pPlayer->moveTo(
 		pAddPlayerPkt->m_pos,
-		pPlayer->m_rot);
+		pAddPlayerPkt->m_rot);
 
-	pPlayer->m_name = pAddPlayerPkt->m_name;
+	pPlayer->setName(pAddPlayerPkt->m_name.C_String());
 	pPlayer->m_guid = pAddPlayerPkt->m_guid;
 
 	if (pPlayer->getPlayerGameType() == GAME_TYPE_CREATIVE)
@@ -175,7 +196,91 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, AddPlay
 	else
 		pPlayer->m_pInventory->prepareSurvivalInventory();
 
-	m_pMinecraft->m_gui.addMessage(pPlayer->m_name + " joined the game");
+	pPlayer->m_pInventory->setSelectedItem(ItemStack(pAddPlayerPkt->m_itemId, pAddPlayerPkt->m_itemAuxValue, 63));
+
+	m_pMinecraft->m_pGui->addMessage(pPlayer->getName() + " joined the game");
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, AddMobPacket* pAddMobPkt)
+{
+	//puts_ignorable("AddMobPacket");
+
+	if (!m_pLevel)
+	{
+		LOG_W("Trying to add a mob with no level!");
+		return;
+	}
+
+	EntityType::ID entityTypeId = (EntityType::ID)pAddMobPkt->m_entityTypeId;
+	if (entityTypeId == EntityType::UNKNOWN)
+	{
+		LOG_E("Trying to add a mob without a type id");
+		return;
+	}
+
+	Dimension& dimension = *m_pLevel->getDimension(DIMENSION_OVERWORLD);
+	TileSource& tileSource = *dimension.getTileSource();
+
+	Entity* entity = MobFactory::CreateMob(entityTypeId, tileSource);
+	// Mojang, in all of their infinite wisdon, does not have this check here in 0.2.1,
+	// so the game will just crash if you replicate a mob it can't create.
+	if (!entity)
+	{
+		LOG_E("Server tried to add an unknown mob type! :%d", entityTypeId);
+		return;
+	}
+
+	entity->m_EntityID = pAddMobPkt->m_entityId;
+	entity->moveTo(pAddMobPkt->m_pos, pAddMobPkt->m_rot);
+	entity->getEntityData().assignValues(pAddMobPkt->getUnpackedData());
+	m_pLevel->addEntity(entity);
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, AddEntityPacket* packet)
+{
+	puts_ignorable("AddEntityPacket");
+
+	if (!m_pLevel)
+	{
+		LOG_W("Trying to add an entity with no level!");
+		return;
+	}
+
+	EntityType::ID entityTypeId = (EntityType::ID)packet->m_entityTypeId;
+	if (entityTypeId == EntityType::UNKNOWN)
+	{
+		LOG_E("Trying to add an entity without a type id");
+		return;
+	}
+
+	Dimension& dimension = *m_pLevel->getDimension(DIMENSION_OVERWORLD);
+	TileSource& tileSource = *dimension.getTileSource();
+
+	Entity* entity = EntityFactory::CreateEntity(entityTypeId, tileSource);
+	if (!entity)
+	{
+		LOG_E("Server tried to add an unknown entity type! :%d", entityTypeId);
+		return;
+	}
+
+	entity->m_EntityID = packet->m_entityId;
+	entity->setPos(packet->m_pos);
+	
+	if (packet->m_auxValue > 0)
+	{
+		entity->setAuxValue(packet->m_auxValue);
+
+		entity->m_vel = packet->m_vel;
+	}
+
+	// @HACK 0.3.3 did this
+	if (entity->getDescriptor().isType(EntityType::PRIMED_TNT))
+	{
+		PrimedTnt& tnt = (PrimedTnt&)*entity;
+		tnt.m_fuseTimer = 1000;
+	}
+
+	m_pLevel->putEntity(packet->m_entityId, entity);
 }
 
 void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, RemoveEntityPacket* pRemoveEntityPkt)
@@ -188,6 +293,88 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, RemoveE
 		m_pLevel->removeEntity(pEnt);
 }
 
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, AddItemEntityPacket* packet)
+{
+	puts_ignorable("AddItemEntityPacket");
+
+	if (!m_pLevel) return;
+
+	ItemStack itemStack(packet->m_itemId, packet->m_itemCount, packet->m_auxValue);
+	if (itemStack.isEmpty())
+	{
+		LOG_E("Received empty ItemStack from server!");
+		return;
+	}
+
+	Dimension& dimension = *m_pLevel->getDimension(DIMENSION_OVERWORLD);
+	TileSource& tileSource = *dimension.getTileSource();
+
+	ItemEntity* pItemEntity = new ItemEntity(tileSource, packet->m_pos, itemStack);
+
+	pItemEntity->m_vel.x = packet->m_velX * (1.f / 128.f);
+	pItemEntity->m_vel.y = packet->m_velY * (1.f / 128.f);
+	pItemEntity->m_vel.z = packet->m_velZ * (1.f / 128.f);
+
+	m_pLevel->putEntity(packet->m_entityId, pItemEntity);
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, TakeItemEntityPacket* pkt)
+{
+	puts_ignorable("TakeItemEntityPacket");
+
+	if (!m_pLevel) return;
+
+	Entity* pEntity = m_pLevel->getEntity(pkt->m_targetId);
+	if (!pEntity)
+	{
+		LOG_E("Failed to handle TakeItemEntityPacket: Unknown ItemEntity: %d", pkt->m_targetId);
+		return;
+	}
+
+	if (!pEntity->getDescriptor().isType(EntityType::ITEM))
+		return;
+	ItemEntity* pItemEntity = (ItemEntity*)pEntity;
+
+	if (m_pMinecraft->m_pLocalPlayer->m_EntityID == pkt->m_sourceId)
+	{
+		if (!pItemEntity->m_itemStack.isEmpty())
+		{
+			if (m_pMinecraft->m_pLocalPlayer->m_pInventory->add(pItemEntity->m_itemStack))
+			{
+				m_pLevel->playSound(pItemEntity, "random.pop", 0.3f,
+					((Entity::sharedRandom.nextFloat() - Entity::sharedRandom.nextFloat()) * 0.7f + 1.0f) * 2.0f);
+			}
+			else
+			{
+				if (m_serverProtocolVersion >= 4)
+				{
+					m_pRakNetInstance->send(new DropItemPacket(pkt->m_sourceId, pItemEntity->m_itemStack));
+				}
+			}
+		}
+	}
+}	
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, MoveEntityPacket* packet)
+{
+	if (!m_pLevel) return;
+
+	Entity* pEntity = m_pLevel->getEntity(packet->m_entityId);
+	if (!pEntity) return;
+
+	Rot2 rot;
+	if (packet->m_bHasRot)
+	{
+		rot = packet->m_rot;
+	}
+	else
+	{
+		rot = pEntity->m_rot;
+	}
+	
+	pEntity->lerpTo(packet->m_pos, rot);
+}
+
 void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, MovePlayerPacket* packet)
 {
 	if (!m_pLevel) return;
@@ -195,21 +382,23 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, MovePla
 	Entity* pEntity = m_pLevel->getEntity(packet->m_id);
 	if (!pEntity)
 	{
-		LOG_E("No player with id %d", packet->m_id);
+		LOG_E("MovePlayerPacket: No player with id %d", packet->m_id);
 		return;
 	}
-	
-	pEntity->lerpTo(packet->m_pos, packet->m_rot, 3);
+
+	pEntity->lerpTo(packet->m_pos, packet->m_rot);
 }
 
 void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, PlaceBlockPacket* pPlaceBlockPkt)
 {
 	puts_ignorable("PlaceBlockPacket");
-
-	Player* pPlayer = (Player*)m_pLevel->getEntity(pPlaceBlockPkt->m_playerID);
+	
+	if (!m_pLevel) return;
+	
+	Player* pPlayer = (Player*)m_pLevel->getEntity(pPlaceBlockPkt->m_entityId);
 	if (!pPlayer)
 	{
-		LOG_E("No player with id %d", pPlaceBlockPkt->m_playerID);
+		LOG_E("PlaceBlockPacket: No player with id %d", pPlaceBlockPkt->m_entityId);
 		return;
 	}
 
@@ -219,34 +408,38 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, PlaceBl
 	if (!areAllChunksLoaded())
 		return;
 
+	Dimension& dimension = pPlayer->getDimension();
+	TileSource& tileSource = *dimension.getTileSource();
+
 	const TilePos& pos = pPlaceBlockPkt->m_pos;
-	TileID tile = pPlaceBlockPkt->m_tile;
+	TileID tileTypeId = pPlaceBlockPkt->m_tileTypeId;
 	Facing::Name face = (Facing::Name)pPlaceBlockPkt->m_face;
 
-	if (!m_pLevel->mayPlace(tile, pos, true))
+	Tile* pTile = Tile::tiles[tileTypeId];
+	if (!tileSource.setTileAndData(pos, FullTile(tileTypeId, pPlaceBlockPkt->m_data)))
 		return;
-
-	Tile* pTile = Tile::tiles[tile];
-	if (!m_pLevel->setTile(pos, tile))
-		return;
-
-	Tile::tiles[tile]->setPlacedOnFace(m_pLevel, pos, face);
-	Tile::tiles[tile]->setPlacedBy(m_pLevel, pos, pPlayer);
+	
+	pTile->setPlacedOnFace(tileSource, pos, face);
+	pTile->setPlacedBy(pos, *pPlayer);
 
 	const Tile::SoundType* pSound = pTile->m_pSound;
-	m_pLevel->playSound(pos + 0.5f, "step." + pSound->m_name, 0.5f * (1.0f + pSound->volume), 0.8f * pSound->pitch);
+	m_pLevel->playSound(pos + 0.5f, "step." + pSound->name, 0.5f * (1.0f + pSound->volume), 0.8f * pSound->pitch);
 }
 
 void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, RemoveBlockPacket* pRemoveBlockPkt)
 {
 	puts_ignorable("RemoveBlockPacket");
 
-	Player* pPlayer = (Player*)m_pLevel->getEntity(pRemoveBlockPkt->m_playerID);
-	if (!pPlayer)
+	if (!m_pLevel) return;
+
+	Entity* pEntity = m_pLevel->getEntity(pRemoveBlockPkt->m_entityId);
+	if (!pEntity || !pEntity->isPlayer())
 	{
-		LOG_E("No player with id %d", pRemoveBlockPkt->m_playerID);
+		LOG_E("RemoveBlockPacket: No player with id %d", pRemoveBlockPkt->m_entityId);
 		return;
 	}
+
+	Player* pPlayer = (Player*)pEntity;
 
 	pPlayer->swing();
 
@@ -254,30 +447,74 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, RemoveB
 	if (!areAllChunksLoaded())
 		return;
 
+	TileSource& tileSource = pPlayer->getTileSource();
+
 	const TilePos& pos = pRemoveBlockPkt->m_pos;
+	Tile* pTile = Tile::tiles[tileSource.getTile(pos)];
+	TileData data = tileSource.getData(pos);
 
-	Tile* pTile = Tile::tiles[m_pLevel->getTile(pos)];
-	int data = m_pLevel->getData(pos);
-	bool setTileResult = m_pLevel->setTile(pos, TILE_AIR);
+	m_pMinecraft->m_pParticleEngine->destroyEffect(*pPlayer, pos);
 
+	bool setTileResult = tileSource.setTile(pos, TILE_AIR);
 	if (pTile && setTileResult)
 	{
 		const Tile::SoundType* pSound = pTile->m_pSound;
-		m_pLevel->playSound(pos + 0.5f, "step." + pSound->m_name, 0.5f * (1.0f + pSound->volume), 0.8f * pSound->pitch);
+		m_pLevel->playSound(pos + 0.5f, "step." + pSound->name, 0.5f * (1.0f + pSound->volume), 0.8f * pSound->pitch);
 
-		pTile->destroy(m_pLevel, pos, data);
+		pTile->destroy(tileSource, pos, data);
 	}
 }
 
 void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, UpdateBlockPacket* pkt)
 {
+	if (!m_pLevel) return;
+
+	BlockUpdate update(pkt->m_pos, pkt->m_tileTypeId, pkt->m_data);
+
 	if (!areAllChunksLoaded())
 	{
-		m_bufferedBlockUpdates.push_back(SBufferedBlockUpdate(pkt->m_pos, pkt->m_tile, pkt->m_data));
+		m_bufferedBlockUpdates.push_back(update);
 		return;
 	}
 
-	m_pLevel->setTileAndData(pkt->m_pos, pkt->m_tile, pkt->m_data);
+	handleBlockUpdate(update);
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, ExplodePacket* pkt)
+{
+	if (!m_pLevel) return;
+
+	Dimension& dimension = *m_pLevel->getDimension(DIMENSION_OVERWORLD);
+	TileSource& tileSource = *dimension.getTileSource();
+
+	Explosion explosion(tileSource, nullptr, pkt->m_pos, pkt->m_range);
+	explosion.addParticles(); // @TODO: have addParticles pick random spots to throw particles
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, LevelEventPacket* pkt)
+{
+	//puts_ignorable("LevelEventPacket");
+	if (!m_pLevel) return;
+
+	m_pLevel->levelEvent(LevelEvent(pkt->m_eventId, pkt->m_pos, pkt->m_data));
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, TileEventPacket* pkt)
+{
+	//puts_ignorable("TileEventPacket");
+	if (!m_pLevel) return;
+
+	m_pLevel->tileEvent(TileEvent(pkt->m_pos, pkt->m_b0, pkt->m_b1));
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, EntityEventPacket* pkt)
+{
+	//puts_ignorable("EntityEventPacket");
+	if (!m_pLevel) return;
+
+	Entity* pEntity = m_pLevel->getEntity(pkt->m_entityId);
+	if (pEntity)
+		pEntity->handleEntityEvent(pkt->m_eventId);
 }
 
 void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, ChunkDataPacket* pChunkDataPkt)
@@ -288,13 +525,18 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, ChunkDa
 		return;
 	}
 
-	LevelChunk* pChunk = m_pLevel->getChunkSource()->create(pChunkDataPkt->m_chunkPos);
+	Dimension& dimension = *m_pLevel->getDimension(DIMENSION_OVERWORLD);
+	ChunkSource& chunkSource = *dimension.getChunkSource();
+
+	LevelChunk* pChunk = chunkSource.create(pChunkDataPkt->m_chunkPos);
 	if (!pChunk || pChunk->isEmpty())
 	{
 		LOG_E("Failed to find write-able chunk");
 		// @BUG: Not trying again.
 		return;
 	}
+
+	TileSource& tileSource = *dimension.getTileSource();
 
 	int x16 = 16 * pChunkDataPkt->m_chunkPos.x;
 	int z16 = 16 * pChunkDataPkt->m_chunkPos.z;
@@ -305,7 +547,7 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, ChunkDa
 	int minX = 16,  minZ = 16;
 	int maxX = 0,   maxZ = 0;
 
-	for (int k = 0; k < 256; k++)
+	for (int k = 0; k < C_MAX_CHUNKS; k++)
 	{
 		uint8_t updMap;
 		pChunkDataPkt->m_data.Read(updMap);
@@ -326,11 +568,11 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, ChunkDa
 
 				for (int i = 0; i < 16; i++)
 				{
-					m_pLevel->setTileNoUpdate(TilePos(x16 + (k & 0xF), yPos + i, z16 + (k >> 4)), tiles[i]);
+					tileSource.setTileNoUpdate(TilePos(x16 + (k & 0xF), yPos + i, z16 + (k >> 4)), tiles[i]);
 				}
 
-				int idx = ((k & 0xF) << 11) | ((k >> 4) << 7) + yPos;
-				memcpy(&pChunk->m_tileData[idx >> 1], datas, sizeof datas);
+				int idx = ((k & 0xF) << 11) | (((k >> 4) << 7) + yPos);
+				memcpy(&pChunk->m_tileData.array[idx >> 1], datas, sizeof datas);
 			}
 
 			int ymin = 16 * (1 << j);
@@ -353,11 +595,11 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, ChunkDa
 	}
 
 	if (updated)
-		m_pLevel->setTilesDirty(TilePos(minX + x16, minY, minZ), TilePos(maxX + x16, maxY, maxZ + z16));
+		m_pLevel->fireTilesDirty(TilePos(minX + x16, minY, minZ), TilePos(maxX + x16, maxY, maxZ + z16));
 
 	pChunk->m_bUnsaved = true;
-
-	if (m_serverProtocolVersion < 2)
+	m_chunkStates[pChunkDataPkt->m_chunkPos.x][pChunkDataPkt->m_chunkPos.z] = true;
+	if (!m_bUseLevelDataPkt)
 	{
 		if (areAllChunksLoaded())
 			flushAllBufferedUpdates();
@@ -381,11 +623,242 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, PlayerE
 		return;
 	}
 
-	pPlayer->m_pInventory->selectItemById(pPlayerEquipmentPkt->m_itemID, C_MAX_HOTBAR_ITEMS);
+#ifdef FEATURE_SERVER_INVENTORIES
+	// will need to be reworked for proper server-sided inventory support, pick the proper slot, not just any item
+	pPlayer->m_pInventory->pickItem(pPlayerEquipmentPkt->m_itemID, pPlayerEquipmentPkt->m_itemAuxValue, C_MAX_HOTBAR_ITEMS);
+#else
+	pPlayer->m_pInventory->setSelectedItem(ItemStack(pPlayerEquipmentPkt->m_itemID, 1, pPlayerEquipmentPkt->m_itemAuxValue));
+#endif
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, InteractPacket* pkt)
+{
+	//puts_ignorable("InteractPacket");
+	if (!m_pLevel) return;
+
+	Entity* pSource = m_pLevel->getEntity(pkt->m_sourceId);
+	Entity* pTarget = m_pLevel->getEntity(pkt->m_targetId);
+	if (!pSource || !pTarget)
+		return;
+
+	if (!pSource->isPlayer())
+		return;
+
+	Player* pPlayer = (Player*)pSource;
+	switch (pkt->m_actionType)
+	{
+	case InteractPacket::INTERACT:
+		pPlayer->swing();
+		m_pMinecraft->getPlayerGameMode(*pPlayer)->interact(*pPlayer, *pTarget);
+		break;
+	case InteractPacket::ATTACK:
+		pPlayer->swing();
+		m_pMinecraft->getPlayerGameMode(*pPlayer)->attack(*pPlayer, *pTarget);
+		break;
+	default:
+		LOG_W("Received unkown action in InteractPacket: %d", pkt->m_actionType);
+		break;
+	}
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, SetEntityDataPacket* pkt)
+{
+	puts_ignorable("SetEntityDataPacket");
+
+	if (!m_pLevel)
+		return;
+
+	Entity* pEntity = m_pLevel->getEntity(pkt->m_entityId);
+	if (!pEntity)
+		return;
+
+	pEntity->getEntityData().assignValues(pkt->getUnpackedData());
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, SetEntityMotionPacket* pkt)
+{
+	if (!m_pLevel) return;
+
+	Entity* pEntity = m_pLevel->getEntity(pkt->m_entityId);
+	if (!pEntity) return;
+
+	pEntity->m_vel = pkt->m_vel;
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, SetHealthPacket* pkt)
+{
+	puts_ignorable("SetHealthPacket");
+
+	if (!m_pLevel)
+		return;
+
+	LocalPlayer* pLocalPlayer = m_pMinecraft->m_pLocalPlayer;
+	if (pLocalPlayer)
+		pLocalPlayer->hurtTo(pkt->m_health);
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& rakGuid, AnimatePacket* pkt)
+{
+	//puts_ignorable("AnimatePacket");
+
+	if (!m_pLevel)
+		return;
+
+	Entity* pEntity = m_pLevel->getEntity(pkt->m_entityId);
+	if (!pEntity)
+		return;
+
+	switch (pkt->m_actionId)
+	{
+		case AnimatePacket::SWING:
+		{
+			if (!pEntity->isMob())
+				break;
+			Mob* pMob = (Mob*)pEntity;
+
+			pMob->swing();
+			break;
+		}
+		case AnimatePacket::HURT:
+		{
+			pEntity->animateHurt();
+			break;
+		}
+		default:
+		{
+			LOG_W("Received unkown action in AnimatePacket: %d, EntityType: %s", pkt->m_actionId, pEntity->getDescriptor().getEntityType().getName().c_str());
+			break;
+		}
+	}
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& guid, RespawnPacket* packet)
+{
+	puts_ignorable("RespawnPacket");
+
+	if (!m_pLevel)
+		return;
+
+	NetEventCallback::handle(*m_pLevel, guid, packet);
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& guid, ContainerOpenPacket* packet)
+{
+	if (!m_pMinecraft)
+		return;
+
+	LocalPlayer* pLocalPlayer = m_pMinecraft->m_pLocalPlayer;
+	if (!pLocalPlayer)
+		return;
+
+	switch (packet->m_type)
+	{
+	case Container::CONTAINER:
+		pLocalPlayer->openContainer(new SimpleContainer(packet->m_size, packet->m_title.C_String()));
+		break;
+	case Container::FURNACE:
+		pLocalPlayer->openFurnace(new FurnaceTileEntity);
+		break;
+	case Container::DISPENSER:
+		pLocalPlayer->openTrap(new DispenserTileEntity());
+		break;
+	case Container::CRAFTING:
+		pLocalPlayer->startCrafting(pLocalPlayer->m_pos);
+		break;
+	default:
+		return;
+	}
+
+	pLocalPlayer->m_pContainerMenu->m_containerId = packet->m_containerId;
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& guid, ContainerClosePacket* packet)
+{
+	puts_ignorable("ContainerClosePacket");
+
+	if (!m_pMinecraft)
+		return;
+
+	LocalPlayer* pLocalPlayer = m_pMinecraft->m_pLocalPlayer;
+	if (!pLocalPlayer)
+		return;
+
+	pLocalPlayer->closeContainer();
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& guid, ContainerSetSlotPacket* packet)
+{
+	puts_ignorable("ContainerSetSlotPacket");
+
+	if (!m_pMinecraft)
+		return;
+
+	LocalPlayer* pLocalPlayer = m_pMinecraft->m_pLocalPlayer;
+	if (!pLocalPlayer)
+		return;
+
+	ContainerMenu* pContainerMenu = pLocalPlayer->m_pContainerMenu;
+	if (!pContainerMenu)
+		return;
+
+	if (pContainerMenu->m_containerId != packet->m_containerId)
+		return;
+	
+	pContainerMenu->m_bBroadcastChanges = false;
+	pContainerMenu->trySetItem(packet->m_slotId, packet->m_item);
+	pContainerMenu->m_bBroadcastChanges = true;
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& guid, ContainerSetDataPacket* packet)
+{
+	puts_ignorable("ContainerSetDataPacket");
+
+	if (!m_pMinecraft)
+		return;
+
+	LocalPlayer* pLocalPlayer = m_pMinecraft->m_pLocalPlayer;
+	if (!pLocalPlayer)
+		return;
+
+	ContainerMenu* pContainerMenu = pLocalPlayer->m_pContainerMenu;
+	if (!pContainerMenu)
+		return;
+
+	if (pContainerMenu->m_containerId != packet->m_containerId)
+		return;
+
+	pContainerMenu->m_bBroadcastChanges = false;
+	pContainerMenu->setData(packet->m_id, packet->m_value);
+	pContainerMenu->m_bBroadcastChanges = true;
+}
+
+void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& guid, ContainerSetContentPacket* packet)
+{
+	puts_ignorable("ContainerSetContentPacket");
+
+	if (!m_pMinecraft)
+		return;
+
+	LocalPlayer* pLocalPlayer = m_pMinecraft->m_pLocalPlayer;
+	if (!pLocalPlayer)
+		return;
+
+	ContainerMenu* pContainerMenu = pLocalPlayer->m_pContainerMenu;
+	if (!pContainerMenu)
+		return;
+
+	if (pContainerMenu->m_containerId != packet->m_containerId)
+		return;
+
+	pContainerMenu->m_bBroadcastChanges = false;
+	pContainerMenu->setAll(packet->m_items);
+	pContainerMenu->m_bBroadcastChanges = true;
 }
 
 void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& guid, LevelDataPacket* packet)
 {
+	/*if (!m_pLevel) return;
+
 	const int uncompMagic = 12847812, compMagic = 58712758, chunkSepMagic = 284787658;
 	RakNet::BitStream* bs = &packet->m_data, bs2;
 
@@ -401,7 +874,7 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& guid, LevelDataP
 	if (magicNum == compMagic)
 	{
 		// Decompress it before we handle it.
-		int uncompSize = 0, compSize = 0;
+		uint32_t uncompSize = 0, compSize = 0;
 		bs->Read(uncompSize);
 		bs->Read(compSize);
 
@@ -434,7 +907,7 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& guid, LevelDataP
 		bs->Read(magicNum);
 	}
 
-	int chunksX = 0, chunksZ = 0;
+	uint32_t chunksX = 0, chunksZ = 0;
 	bs->Read(chunksX);
 	bs->Read(chunksZ);
 
@@ -460,7 +933,7 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& guid, LevelDataP
 			uint8_t ptype = 0;
 
 			// read the data size. This'll let us know how much to read.
-			int dataSize = 0;
+			uint32_t dataSize = 0;
 			bs->Read(dataSize);
 
 			LevelChunk* pChunk = m_pLevel->getChunk(cp);
@@ -481,7 +954,7 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& guid, LevelDataP
 
 			// Read the chunk data packet itself, and handle it.
 			ChunkDataPacket cdp(cp, pChunk);
-			cdp.read(&bs2);
+			cdp.read(bs2);
 
 			if (pChunk)
 				handle(guid, &cdp);
@@ -492,24 +965,65 @@ void ClientSideNetworkHandler::handle(const RakNet::RakNetGUID& guid, LevelDataP
 	}
 
 	// All chunks are loaded. Also flush all the updates we've buffered.
-	m_chunksRequested = 256;
-	flushAllBufferedUpdates();
+	m_chunksRequested = C_MAX_CHUNKS;
+	flushAllBufferedUpdates();*/
 }
 
 bool ClientSideNetworkHandler::areAllChunksLoaded()
 {
-	return m_chunksRequested > 255;
+	return m_chunksRequested >= C_MAX_CHUNKS;
 }
+
+bool ClientSideNetworkHandler::isChunkLoaded(const ChunkPos& cp)
+{
+	if ((cp.x < 0 || cp.x >= C_MAX_CHUNKS_X) || (cp.z < 0 || cp.z >= C_MAX_CHUNKS_Z))
+		return true;
+
+	return m_chunkStates[cp.x][cp.z];
+}
+
+struct _ChunkSorter
+{
+	ChunkPos m_pos;
+
+	_ChunkSorter(const ChunkPos& pos)
+	{
+		m_pos = pos;
+	}
+
+	bool operator()(const ChunkPos& a, const ChunkPos& b) const
+	{
+		return (a - m_pos).lengthSqr() < (b - m_pos).lengthSqr();
+	}
+};
 
 void ClientSideNetworkHandler::arrangeRequestChunkOrder()
 {
 	clearChunksLoaded();
-	// @TODO: Implement arrangeRequestChunkOrder()
+
+	ChunkPos cp(C_MAX_CHUNKS_X / 2, C_MAX_CHUNKS_Z / 2);
+
+	if (m_pMinecraft)
+	{
+		LocalPlayer* pLocalPlayer = m_pMinecraft->m_pLocalPlayer;
+		if (pLocalPlayer)
+		{
+			cp = pLocalPlayer->m_pos;
+		}
+	}
+
+	std::sort(&m_orderedChunks[0], &m_orderedChunks[C_MAX_CHUNKS-1], _ChunkSorter(cp));
 }
 
 void ClientSideNetworkHandler::clearChunksLoaded()
 {
-	// @TODO: Implement clearChunksLoaded()
+	for (int i = 0; i < C_MAX_CHUNKS; i++)
+	{
+		ChunkPos cp(i >> 4, i & 0xF);
+
+		m_orderedChunks[i] = cp;
+		m_chunkStates[cp.x][cp.z] = false;
+	}
 }
 
 void ClientSideNetworkHandler::requestNextChunk()
@@ -517,25 +1031,35 @@ void ClientSideNetworkHandler::requestNextChunk()
 	if (areAllChunksLoaded())
 		return;
 
-	// @BUG: The return value of areAllChunksLoaded() is actually true even before the
-	// 256th chunk is loaded.
-
 	if (m_serverProtocolVersion < 2)
 	{
 		m_pRakNetInstance->send(new RequestChunkPacket(ChunkPos(m_chunksRequested % 16, m_chunksRequested / 16)));
 		m_chunksRequested++;
 	}
-	else
+	else if (m_bUseLevelDataPkt)
 	{
 		m_pRakNetInstance->send(new RequestChunkPacket(ChunkPos(-9999, -9999)));
+	}
+	else
+	{
+		m_pRakNetInstance->send(new RequestChunkPacket(m_orderedChunks[m_chunkCount]));
+		m_chunkCount++;
+		m_chunksRequested++;
 	}
 }
 
 void ClientSideNetworkHandler::flushAllBufferedUpdates()
 {
-	for (int i = 0; i < int(m_bufferedBlockUpdates.size()); i++)
+	for (size_t i = 0; i < m_bufferedBlockUpdates.size(); i++)
 	{
-		SBufferedBlockUpdate& u = m_bufferedBlockUpdates[i];
-		m_pLevel->setTileAndData(u.pos, u.tile, u.data);
+		handleBlockUpdate(m_bufferedBlockUpdates[i]);
 	}
+}
+
+void ClientSideNetworkHandler::handleBlockUpdate(const BlockUpdate& u)
+{
+	Dimension& dimension = *m_pLevel->getDimension(DIMENSION_OVERWORLD);
+	TileSource& tileSource = *dimension.getTileSource();
+	
+	tileSource.setTileAndData(u.pos, FullTile(Tile::TransformToValidBlockId(u.tile), u.data));
 }

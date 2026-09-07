@@ -13,11 +13,12 @@
 class Sapling : public Bush
 {
 public:
-	Sapling(int id, int texture);
+	Sapling(TileID id, int texture);
 
-	int getTexture(Facing::Name face, int data) const override;
-	void tick(Level*, const TilePos& pos, Random*) override;
+public:
+	int getTexture(Facing::Name face, TileData data) const override;
+	void tick(TileSource&, const TilePos& pos, Random*) override;
+	int getSpawnResourcesAuxValue(int x) const override;
 
-	void growTree(Level*, const TilePos& pos, Random*);
-	bool maybeGrowTree(Level*, const TilePos& pos, Random*);
+	void growTree(TileSource&, const TilePos& pos, Random*);
 };

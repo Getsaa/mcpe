@@ -8,14 +8,8 @@
 
 #pragma once
 
-#include "compat/LegacyCPPCompatibility.hpp"
-
-struct TurnDelta
-{
-	float x, y;
-	TurnDelta() { x = 0.0f; y = 0.0f; }
-	TurnDelta(float x, float y) : x(x), y(y) {}
-};
+#include "compat/LegacyCPP.hpp"
+#include "world/phys/Vec2.hpp"
 
 class ITurnInput
 {
@@ -30,7 +24,7 @@ public:
 
 	virtual ~ITurnInput();
 	virtual void setScreenSize(int width, int height);
-	virtual TurnDelta getTurnDelta() = 0;
+	virtual Vec2 getTurnDelta() = 0;
 	virtual bool smoothTurning();
 
 private:

@@ -7,6 +7,7 @@
  ********************************************************************/
 
 #include "KeyboardInput.hpp"
+#include "world/entity/Player.hpp"
 
 KeyboardInput::KeyboardInput(Options* pOpts)
 {
@@ -28,19 +29,19 @@ void KeyboardInput::releaseAllKeys()
 		m_keys[i] = false;
 }
 
-void KeyboardInput::setKey(int eventKey, bool eventKeyState)
+void KeyboardInput::setKey(UserActionID ctrl, bool eventKeyState)
 {
-	int index = -1;
-
-	if      (m_pOptions->getKey(KM_FORWARD)  == eventKey) index = INPUT_FORWARD;
-	else if (m_pOptions->getKey(KM_BACKWARD) == eventKey) index = INPUT_BACKWARD;
-	else if (m_pOptions->getKey(KM_LEFT)     == eventKey) index = INPUT_LEFT;
-	else if (m_pOptions->getKey(KM_RIGHT)    == eventKey) index = INPUT_RIGHT;
-	else if (m_pOptions->getKey(KM_JUMP)     == eventKey) index = INPUT_JUMP;
-	else if (m_pOptions->getKey(KM_SNEAK)    == eventKey) index = INPUT_SNEAK;
-
-	if (index == -1)
-		return;
+	int index;
+	switch (ctrl)
+	{
+	case AID_FORWARD:	index = INPUT_FORWARD;	break;
+	case AID_BACKWARD:	index = INPUT_BACKWARD; break;
+	case AID_LEFT:		index = INPUT_LEFT;		break;
+	case AID_RIGHT:		index = INPUT_RIGHT;	break;
+	case AID_JUMP:		index = INPUT_JUMP;		break;
+	case AID_SNEAK:		index = INPUT_SNEAK;	break;
+	default:			index = -1;				return;
+	}
 
 	m_keys[index] = eventKeyState;
 }
@@ -56,11 +57,8 @@ void KeyboardInput::tick(Player* pPlayer)
 	if (m_keys[INPUT_RIGHT])    m_horzInput -= 1.0f;
 
 	m_bJumping  = m_keys[INPUT_JUMP];
+	m_bFlyUp = m_bJumping;
 	m_bSneaking = m_keys[INPUT_SNEAK];
 
-	if (m_keys[INPUT_SNEAK])
-	{
-		m_horzInput = m_horzInput * 0.3f;
-		m_vertInput = m_vertInput * 0.3f;
-	}
+	IMoveInput::tick(pPlayer);
 }

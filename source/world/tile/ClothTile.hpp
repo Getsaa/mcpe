@@ -13,10 +13,20 @@
 class ClothTile : public Tile
 {
 public:
-	ClothTile(int id, int type);
-	int getTexture(Facing::Name face) const override;
-	int getTexture(Facing::Name face, int data) const override;
-	int getSpawnResourcesAuxValue(int val) const override;
+	enum Color
+	{
+		WHITE, ORANGE, MAGENTA, LIGHT_BLUE, YELLOW, LIME, PINK, GRAY, SILVER, CYAN, PURPLE, BLUE, BROWN, GREEN, RED, BLACK
+	};
 
-	uint8_t field_6C;
+	ClothTile(int id);
+
+public:
+	int getTexture(Facing::Name face, TileData data) const override;
+	int getSpawnResourcesAuxValue(int auxValue) const override;
+
+public:
+	static int getColorFromData(int data)
+	{
+		return ~data & 15;
+	}
 };

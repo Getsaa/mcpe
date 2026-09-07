@@ -14,5 +14,6 @@ class CameraItem : public Item
 public:
 	CameraItem(int id);
 
-	ItemInstance* use(ItemInstance* inst, Level* level, Player* player) override;
+public:
+	bool use(ItemStack&, Mob&) const override;
 };

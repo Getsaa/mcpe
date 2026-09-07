@@ -10,22 +10,47 @@
 
 #include "EntityRenderer.hpp"
 #include "../TileRenderer.hpp"
-#include "world/item/ItemInstance.hpp"
+#include "world/item/ItemStack.hpp"
 
 class ItemRenderer : public EntityRenderer
 {
+protected:
+	class Materials
+	{
+	public:
+		mce::MaterialPtr item_entity_item;
+		mce::MaterialPtr item_entity_item_layered;
+		mce::MaterialPtr item_entity_tile;
+		mce::MaterialPtr ui_fill_color;
+		mce::MaterialPtr ui_fill_gradient;
+		mce::MaterialPtr ui_textured;
+		mce::MaterialPtr ui_texture_and_color;
+		mce::MaterialPtr ui_item; // only supposed to be in TileRenderer
+		mce::MaterialPtr ui_item_glint;
+
+		Materials();
+	};
+
+private:
+	static ItemRenderer* singletonPtr;
+public:
+	static ItemRenderer& singleton();
+
 public:
 	ItemRenderer();
 
-	void render(Entity*, float, float, float, float, float) override;
+	void render(const Entity& entity, const Vec3& pos, float rot, float a) override;
+
 	void blitRect(Tesselator&, int, int, int, int, int);
+	void blit(int dx, int dy, int sx, int sy, int tw, int th, const Color&);
 
-	static void blit(int, int, int, int, int, int);
-	static void renderGuiItem(Font*, Textures*, ItemInstance*, int, int, bool);
-	static void renderGuiItemOverlay(Font*, Textures*, ItemInstance*, int, int);
+	void renderGuiItem(Minecraft&, const ItemStack&, int, int, const Color& = Color::WHITE);
+	void renderGuiItemOverlay(Minecraft&, const ItemStack&, int, int);
 
+private:
+	TileRenderer* m_pTileRenderer;
+	Materials m_itemMaterials;
 public:
 	Random m_random;
-	static TileRenderer* tileRenderer;
 };
 

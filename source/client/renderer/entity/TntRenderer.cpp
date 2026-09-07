@@ -7,21 +7,29 @@
  ********************************************************************/
 
 #include "TntRenderer.hpp"
+#include "client/renderer/renderer/RenderMaterialGroup.hpp"
+#include "renderer/ShaderConstants.hpp"
+#include "renderer/MatrixStack.hpp"
 #include "world/entity/PrimedTnt.hpp"
+
+TntRenderer::Materials::Materials()
+{
+	MATERIAL_PTR(switchable, primed_tnt);
+}
 
 TntRenderer::TntRenderer()
 {
 	m_shadowRadius = 0.5f;
 }
 
-void TntRenderer::render(Entity* entity, float x, float y, float z, float a6, float a7)
+void TntRenderer::render(const Entity& entity, const Vec3& pos, float rot, float a)
 {
-	PrimedTnt* tnt = (PrimedTnt*)entity;
+	const PrimedTnt& tnt = (const PrimedTnt&)entity;
 
-	glPushMatrix();
-	glTranslatef(x, y, z);
+	MatrixStack::Ref matrix = MatrixStack::World.push();
+	matrix->translate(pos);
 
-	float m = 1.0f + float(tnt->m_fuseTimer) - a7;
+	float m = 1.0f + float(tnt.m_fuseTimer) - a;
 	if (m < 10.0f)
 	{
 		float n = (m / -10.0f) + 1.0f;
@@ -31,39 +39,20 @@ void TntRenderer::render(Entity* entity, float x, float y, float z, float a6, fl
 			n = 1.0f;
 
 		float scale = 1.0f + 0.3f * n * n * n * n;
-		glScalef(scale, scale, scale);
+		matrix->scale(scale);
 	}
 
 	bindTexture(C_TERRAIN_NAME);
 
 	// @NOTE: Useless assignment. Already being done by the renderTile function
 	Tesselator::instance.color(1.0f, 1.0f, 1.0f);
-
-	// Render the base
-#ifdef ENH_SHADE_HELD_TILES
-#define ARGPATCH , 1.0f
-#else
-#define ARGPATCH
-#endif
 	
-	m_tileRenderer.renderTile(Tile::tnt, 0 ARGPATCH);
+	m_tileRenderer.renderTile(FullTile(Tile::tnt, 0), m_shaderMaterials.entity);
 
 	// @NOTE: Converting to a uint8 for whatever reason
-	if (((uint8_t(tnt->m_fuseTimer) / 5) & 1) == 0)
+	if (((uint8_t(tnt.m_fuseTimer) / 5) & 1) == 0)
 	{
-		glDisable(GL_TEXTURE_2D);
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_DST_ALPHA);
-		glColor4f(1.0f, 1.0f, 1.0f, (((float(tnt->m_fuseTimer) - a7) + 1.0f) / -100.0f + 1.0f) * 0.8f);
-		m_tileRenderer.renderTile(Tile::tnt, 0 ARGPATCH);
-		glColor4f(1.0f, 1.0, 1.0f, 1.0f);
-		glDisable(GL_BLEND);
-		glEnable(GL_TEXTURE_2D);
+		currentShaderColor = Color(1.0f, 1.0f, 1.0f, (((float(tnt.m_fuseTimer) - a) + 1.0f) / -100.0f + 1.0f) * 0.8f);
+		m_tileRenderer.renderTile(FullTile(Tile::tnt, 0), m_shaderMaterials.entity);
 	}
-
-	glPopMatrix();
-
-#ifdef ARGPATCH
-#undef ARGPATCH
-#endif
 }

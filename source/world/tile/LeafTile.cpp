@@ -8,43 +8,234 @@
 
 #include "LeafTile.hpp"
 #include "world/level/Level.hpp"
+#include "world/level/TileSource.hpp"
+#include "world/level/levelgen/biome/BiomeSource.hpp"
 #include "client/renderer/PatchManager.hpp"
+#include "client/renderer/FoliageColor.hpp"
 
-LeafTile::LeafTile(int id) : TransparentTile(id, TEXTURE_LEAVES_TRANSPARENT, Material::leaves, false)
+#define C_REQUIRED_WOOD_RANGE 4
+#define C_UPDATE_LEAF_BIT 8 // 4 on b1.2_02 & 0.1.0
+#define C_NORMAL_LEAF 0
+#define C_EVERGREEN_LEAF 1
+#define C_BIRCH_LEAF 2
+#define C_LEAF_TYPE_MASK 3
+
+const Color LeafTile::DEFAULT_COLOR = Color(0.35f, 0.65f, 0.25f);
+
+LeafTile::LeafTile(TileID id) : TransparentTile(id, TEXTURE_LEAVES_TRANSPARENT, Material::leaves, false)
 {
-	field_70 = nullptr;
+	m_checkBuffer = nullptr;
+	m_bBiomeColors = false;
 
 	m_TextureFrame = TEXTURE_LEAVES_TRANSPARENT;
 	field_74 = TEXTURE_LEAVES_TRANSPARENT;
+	m_renderLayer = RENDER_LAYER_ALPHATEST; // RENDER_LAYER_SEASONS_OPTIONAL_ALPHATEST
 
 	setTicking(true);
 }
 
 LeafTile::~LeafTile()
 {
-	if (field_70)
-		delete[] field_70;
+	if (m_checkBuffer)
+		delete[] m_checkBuffer;
 }
 
-void LeafTile::die(Level* level, const TilePos& pos)
+void LeafTile::_tickDecayOld(TileSource& source, const TilePos& pos)
 {
-	spawnResources(level, pos, level->getData(pos));
-	level->setTile(pos, TILE_AIR);
+	TileData data = source.getData(pos);
+	if ((data & C_UPDATE_LEAF_BIT) == 0)
+		return;
+	
+	constexpr int C_RANGE = 32;
+
+	if (!m_checkBuffer)
+		m_checkBuffer = new int[C_RANGE * C_RANGE * C_RANGE];
+
+	if (source.hasChunksAt(pos - (C_REQUIRED_WOOD_RANGE + 1), pos + (C_REQUIRED_WOOD_RANGE + 1)))
+	{
+		TilePos curr(pos);
+		// @TODO: get rid of magic values
+		for (int i = 3 << 10; i != (5 << 12) + (1 << 10); i += 1 << 10, curr.x++)
+		{
+			curr.x = pos.x - C_REQUIRED_WOOD_RANGE;
+			for (int j = 0; j != 9 << 5; j += C_RANGE, curr.y++)
+			{
+				curr.y = pos.y - C_REQUIRED_WOOD_RANGE;
+				for (int k = 0; k != 9; k++, curr.z++)
+				{
+					curr.z = pos.z - C_REQUIRED_WOOD_RANGE;
+
+					TileID tile = source.getTile(curr);
+					if (tile == Tile::treeTrunk->m_ID)
+						m_checkBuffer[0x18C + i + j + k] = 0;
+					else if (tile == Tile::leaves->m_ID)
+						m_checkBuffer[0x18C + i + j + k] = -2; // ~1
+					else
+						m_checkBuffer[0x18C + i + j + k] = -1; // ~0
+				}
+			}
+		}
+
+		constexpr int k1 = C_RANGE / 2;
+		constexpr int j1 = C_RANGE * C_RANGE;
+
+		for (int i2 = 1; i2 <= C_REQUIRED_WOOD_RANGE; i2++)
+		{
+			for (int l2 = -C_REQUIRED_WOOD_RANGE; l2 <= C_REQUIRED_WOOD_RANGE; l2++)
+			{
+				for (int j3 = -C_REQUIRED_WOOD_RANGE; j3 <= C_REQUIRED_WOOD_RANGE; j3++)
+				{
+					for (int l3 = -C_REQUIRED_WOOD_RANGE; l3 <= C_REQUIRED_WOOD_RANGE; l3++)
+					{
+						if (m_checkBuffer[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] != i2 - 1)
+							continue;
+
+						if (m_checkBuffer[((l2 + k1) - 1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] == -2)
+							m_checkBuffer[((l2 + k1) - 1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] = i2;
+
+						if (m_checkBuffer[(l2 + k1 + 1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] == -2)
+							m_checkBuffer[(l2 + k1 + 1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] = i2;
+
+						if (m_checkBuffer[(l2 + k1) * j1 + ((j3 + k1) - 1) * C_RANGE + (l3 + k1)] == -2)
+							m_checkBuffer[(l2 + k1) * j1 + ((j3 + k1) - 1) * C_RANGE + (l3 + k1)] = i2;
+
+						if (m_checkBuffer[(l2 + k1) * j1 + (j3 + k1 + 1) * C_RANGE + (l3 + k1)] == -2)
+							m_checkBuffer[(l2 + k1) * j1 + (j3 + k1 + 1) * C_RANGE + (l3 + k1)] = i2;
+
+						if (m_checkBuffer[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + ((l3 + k1) - 1)] == -2)
+							m_checkBuffer[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + ((l3 + k1) - 1)] = i2;
+
+						if (m_checkBuffer[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1 + 1)] == -2)
+							m_checkBuffer[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1 + 1)] = i2;
+					}
+				}
+			}
+		}
+
+		if (m_checkBuffer[0x4210] < 0)
+			die(source, pos);
+		else
+			source.setTileAndDataNoUpdate(pos, FullTile(this, data & ~C_UPDATE_LEAF_BIT)); // equates to -5
+	}
 }
 
-int LeafTile::getColor(const LevelSource* level, const TilePos& pos) const
+void LeafTile::_tickDecay(TileSource& source, const TilePos& pos)
 {
+	TileData data = source.getData(pos);
+	if ((data & C_UPDATE_LEAF_BIT) == 0)
+		return;
+
+	constexpr int C_RANGE = 32;
+	constexpr int k1 = C_RANGE / 2;
+	constexpr int j1 = C_RANGE * C_RANGE;
+
+	if (!m_checkBuffer)
+		m_checkBuffer = new int[C_RANGE * C_RANGE * C_RANGE];
+
+	if (source.hasChunksAt(pos - (C_REQUIRED_WOOD_RANGE + 1), pos + (C_REQUIRED_WOOD_RANGE + 1)))
+	{
+		TilePos curr(pos);
+		for (int i2 = -C_REQUIRED_WOOD_RANGE; i2 <= C_REQUIRED_WOOD_RANGE; i2++)
+		{
+			curr.x = pos.x + i2;
+			for (int j = -C_REQUIRED_WOOD_RANGE; j <= C_REQUIRED_WOOD_RANGE; j++)
+			{
+				curr.y = pos.y + j;
+				for (int k = -C_REQUIRED_WOOD_RANGE; k <= C_REQUIRED_WOOD_RANGE; k++)
+				{
+					curr.z = pos.z + k;
+					TileID tile = source.getTile(curr);
+					m_checkBuffer[(i2 + k1) * j1 + (j + k1) * C_RANGE + k + k1] = tile == Tile::treeTrunk->m_ID ? 0 : tile == Tile::leaves->m_ID ? -2 : -1;
+				}
+			}
+		}
+
+		for (int i2 = 1; i2 <= C_REQUIRED_WOOD_RANGE; i2++)
+		{
+			for (int l2 = -C_REQUIRED_WOOD_RANGE; l2 <= C_REQUIRED_WOOD_RANGE; l2++)
+			{
+				for (int j3 = -C_REQUIRED_WOOD_RANGE; j3 <= C_REQUIRED_WOOD_RANGE; j3++)
+				{
+					for (int l3 = -C_REQUIRED_WOOD_RANGE; l3 <= C_REQUIRED_WOOD_RANGE; l3++)
+					{
+						if (m_checkBuffer[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] != i2 - 1)
+							continue;
+
+						if (m_checkBuffer[((l2 + k1) - 1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] == -2)
+							m_checkBuffer[((l2 + k1) - 1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] = i2;
+
+						if (m_checkBuffer[(l2 + k1 + 1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] == -2)
+							m_checkBuffer[(l2 + k1 + 1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] = i2;
+
+						if (m_checkBuffer[(l2 + k1) * j1 + ((j3 + k1) - 1) * C_RANGE + (l3 + k1)] == -2)
+							m_checkBuffer[(l2 + k1) * j1 + ((j3 + k1) - 1) * C_RANGE + (l3 + k1)] = i2;
+
+						if (m_checkBuffer[(l2 + k1) * j1 + (j3 + k1 + 1) * C_RANGE + (l3 + k1)] == -2)
+							m_checkBuffer[(l2 + k1) * j1 + (j3 + k1 + 1) * C_RANGE + (l3 + k1)] = i2;
+
+						if (m_checkBuffer[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + ((l3 + k1) - 1)] == -2)
+							m_checkBuffer[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + ((l3 + k1) - 1)] = i2;
+
+						if (m_checkBuffer[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1 + 1)] == -2)
+							m_checkBuffer[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1 + 1)] = i2;
+					}
+				}
+			}
+		}
+	}
+
+	if (m_checkBuffer[k1 * j1 + k1 * C_RANGE + k1] < 0)
+		die(source, pos);
+	else
+		source.setTileAndDataNoUpdate(pos, FullTile(this, data & ~C_UPDATE_LEAF_BIT));
+}
+
+Color LeafTile::getColor(TileSource& source, const TilePos& pos) const
+{
+	if (FoliageColor::isAvailable() && m_bBiomeColors)
+	{
+		TileData data = source.getData(pos);
+
+		if ((data & 1) == C_EVERGREEN_LEAF)
+		{
+			return FoliageColor::getEvergreenColor();
+		}
+		if ((data & 2) == C_BIRCH_LEAF)
+		{
+			return FoliageColor::getBirchColor();
+		}
+
+		BiomeSource& biomeSource = *source.getBiomeSource();
+
+		biomeSource.getBiomeBlock(pos, 1, 1);
+		return FoliageColor::get(biomeSource.field_4[0], biomeSource.field_8[0]);
+	}
+
 	if (GetPatchManager()->IsGrassTinted())
 	{
 		return 0x339933;
 	}
 
-	return 0xffffff;
+	return Color::WHITE;
 }
 
-int LeafTile::getTexture(Facing::Name face, int data) const
+Color LeafTile::getColor(Facing::Name face, TileData data) const
 {
-	if ((data & 3) == 1)
+	if ((data & 1) == C_EVERGREEN_LEAF)
+	{
+		return FoliageColor::getEvergreenColor();
+	}
+	if ((data & 2) == C_BIRCH_LEAF)
+	{
+		return FoliageColor::getBirchColor();
+	}
+
+	return FoliageColor::getDefaultColor();
+}
+
+int LeafTile::getTexture(Facing::Name face, TileData data) const
+{
+	if ((data & C_LEAF_TYPE_MASK) == C_EVERGREEN_LEAF)
 		return m_TextureFrame + 80;
 
 	return m_TextureFrame;
@@ -55,13 +246,13 @@ bool LeafTile::isSolidRender() const
 	return !m_bTransparent;
 }
 
-void LeafTile::stepOn(Level* level, const TilePos& pos, Entity* entity)
+void LeafTile::stepOn(TileSource& source, const TilePos& pos, Entity* entity)
 {
 }
 
-void LeafTile::onRemove(Level* level, const TilePos& pos)
+void LeafTile::onRemove(TileSource& source, const TilePos& pos)
 {
-	if (!level->hasChunksAt(pos - 2, pos + 2))
+	if (!source.hasChunksAt(pos - 2, pos + 2))
 		return;
 
 	TilePos o(-1, -1, -1);
@@ -71,94 +262,35 @@ void LeafTile::onRemove(Level* level, const TilePos& pos)
 		{
 			for (o.z = -1; o.z < 2; o.z++)
 			{
-				TileID tile = level->getTile(pos + o);
+				TileID tile = source.getTile(pos + o);
 				if (tile != Tile::leaves->m_ID) continue;
 
-				level->setDataNoUpdate(pos + o, level->getData(pos + o) | 4);
+				source.setTileAndDataNoUpdate(pos + o, FullTile(this, source.getData(pos + o) | C_UPDATE_LEAF_BIT));
 			}
 		}
 	}
 }
 
-void LeafTile::tick(Level* level, const TilePos& pos, Random* random)
+void LeafTile::tick(TileSource& source, const TilePos& pos, Random* random)
 {
-	if (level->m_bIsMultiplayer)
+	if (source.getLevelConst().m_bIsClientSide)
 		return;
 
-	int data = level->getData(pos);
-	if ((data & 4) == 0)
-		return;
+	_tickDecay(source, pos);
+}
 
-	constexpr int C_RANGE = 32;
-	constexpr int C_RANGE_SMALL = 4;
+int LeafTile::getResource(TileData data, Random* random) const
+{
+	return random->nextInt(20) == 0 ? Tile::sapling->m_ID : 0;
+}
 
-	if (!field_70)
-		field_70 = new int[C_RANGE * C_RANGE * C_RANGE];
+int LeafTile::getSpawnResourcesAuxValue(int x) const
+{
+	return x & 3;
+}
 
-	if (level->hasChunksAt(pos - 5, pos + 5))
-	{
-		TilePos curr(pos);
-		// @TODO: get rid of magic values
-		for (int i = 0x3000; i != 0x5400; i += 0x400, curr.x++)
-		{
-			curr.x = pos.x - C_RANGE_SMALL;
-			for (int j = 0; j != 0x120; j += 0x20, curr.y++)
-			{
-				curr.y = pos.y - C_RANGE_SMALL;
-				for (int k = 0; k != 9; k++, curr.z++)
-				{
-					curr.z = pos.z - C_RANGE_SMALL;
-
-					TileID tile = level->getTile(curr);
-					if (tile == Tile::treeTrunk->m_ID)
-						field_70[0x18C + i + j + k] = 0;
-					else if (tile == Tile::leaves->m_ID)
-						field_70[0x18C + i + j + k] = -2;
-					else
-						field_70[0x18C + i + j + k] = -1;
-				}
-			}
-		}
-
-		constexpr int k1 = C_RANGE / 2;
-		constexpr int j1 = C_RANGE * C_RANGE;
-
-		for (int i2 = 1; i2 <= 4; i2++)
-		{
-			for (int l2 = -C_RANGE_SMALL; l2 <= C_RANGE_SMALL; l2++)
-			{
-				for (int j3 = -C_RANGE_SMALL; j3 <= C_RANGE_SMALL; j3++)
-				{
-					for (int l3 = -C_RANGE_SMALL; l3 <= C_RANGE_SMALL; l3++)
-					{
-						if (field_70[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] != i2 - 1)
-							continue;
-
-						if (field_70[((l2 + k1) - 1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] == -2)
-							field_70[((l2 + k1) - 1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] = i2;
-
-						if (field_70[(l2 + k1 + 1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] == -2)
-							field_70[(l2 + k1 + 1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1)] = i2;
-
-						if (field_70[(l2 + k1) * j1 + ((j3 + k1) - 1) * C_RANGE + (l3 + k1)] == -2)
-							field_70[(l2 + k1) * j1 + ((j3 + k1) - 1) * C_RANGE + (l3 + k1)] = i2;
-
-						if (field_70[(l2 + k1) * j1 + (j3 + k1 + 1) * C_RANGE + (l3 + k1)] == -2)
-							field_70[(l2 + k1) * j1 + (j3 + k1 + 1) * C_RANGE + (l3 + k1)] = i2;
-
-						if (field_70[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + ((l3 + k1) - 1)] == -2)
-							field_70[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + ((l3 + k1) - 1)] = i2;
-
-						if (field_70[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1 + 1)] == -2)
-							field_70[(l2 + k1) * j1 + (j3 + k1) * C_RANGE + (l3 + k1 + 1)] = i2;
-					}
-				}
-			}
-		}
-
-		if (field_70[0x4210] < 0)
-			die(level, pos);
-		else
-			level->setDataNoUpdate(pos, data & ~0x4);
-	}
+void LeafTile::die(TileSource& source, const TilePos& pos)
+{
+	spawnResources(source, pos, source.getData(pos));
+	source.setTile(pos, TILE_AIR);
 }

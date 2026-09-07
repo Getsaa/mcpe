@@ -32,10 +32,10 @@ LavaSideTexture::LavaSideTexture() : DynamicTexture(Tile::lava->m_TextureFrame +
 
 LavaSideTexture::~LavaSideTexture()
 {
-	SAFE_DELETE(m_data1);
-	SAFE_DELETE(m_data2);
-	SAFE_DELETE(m_data3);
-	SAFE_DELETE(m_data4);
+	SAFE_DELETE_ARRAY(m_data1);
+	SAFE_DELETE_ARRAY(m_data2);
+	SAFE_DELETE_ARRAY(m_data3);
+	SAFE_DELETE_ARRAY(m_data4);
 }
 
 void LavaSideTexture::tick()
@@ -46,7 +46,7 @@ void LavaSideTexture::tick()
 	{
 		for (int y = 0; y < 16; y++)
 		{
-			float f = 0.0F;
+			float f = 0.0f;
 			int ax = int(Mth::sin((float(x) * float(M_PI) * 2) / 16.0f) * 1.2f);
 			int ay = int(Mth::sin((float(y) * float(M_PI) * 2) / 16.0f) * 1.2f);
 
@@ -54,13 +54,13 @@ void LavaSideTexture::tick()
 			{
 				for (int by = y - 1; by <= y + 1; by++)
 				{
-					int k2 = bx + ay & 0xf;
-					int i3 = by + ax & 0xf;
+					int k2 = (bx + ay) & 0xf;
+					int i3 = (by + ax) & 0xf;
 					f += m_data1[k2 + i3 * 16];
 				}
 			}
 
-			m_data2[x + y * 16] = f / 10.0f + ((m_data3[(x & 0xf) + (y + 0 & 0xf) * 16] + m_data3[(x + 1 & 0xf) + (y & 0xf) * 16] + m_data3[(x + 1 & 0xf) + (y + 1 & 0xf) * 16] + m_data3[(x & 0xf) + (y + 1 & 0xf) * 16]) * 0.25f) * 0.8f;
+			m_data2[x + y * 16] = f / 10.0f + ((m_data3[(x & 0xf) + ((y + 0) & 0xf) * 16] + m_data3[((x + 1) & 0xf) + (y & 0xf) * 16] + m_data3[((x + 1) & 0xf) + ((y + 1) & 0xf) * 16] + m_data3[(x & 0xf) + ((y + 1) & 0xf) * 16]) * 0.25f) * 0.8f;
 			m_data3[x + y * 16] += m_data4[x + y * 16] * 0.01f;
 
 			if (m_data3[x + y * 16] < 0.0f)

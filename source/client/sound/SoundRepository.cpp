@@ -7,17 +7,19 @@
  ********************************************************************/
 
 #include "SoundRepository.hpp"
-#include "common/Utils.hpp"
+#include "common/Logger.hpp"
 #include "common/Mth.hpp"
 
 void SoundRepository::add(const std::string& name, SoundDesc& sd)
 {
+	if (!sd.m_isLoaded)
+		return;
 	std::map<std::string, std::vector<SoundDesc> >::iterator iter = m_repo.find(name);
 	if (iter == m_repo.end())
 	{
 		std::vector<SoundDesc> sdv;
 		sdv.push_back(sd);
-		m_repo.insert(std::pair<std::string, std::vector<SoundDesc> >(name, sdv));
+		m_repo.insert(std::make_pair(name, sdv));
 	}
 	else
 	{
@@ -31,7 +33,7 @@ bool SoundRepository::get(const std::string& name, SoundDesc& sd)
 	std::map<std::string, std::vector<SoundDesc> >::iterator iter = m_repo.find(name);
 	if (iter == m_repo.end())
 	{
-		LOG_E("Couldn't find a sound with id: %s", name.c_str());
+		LOG_W("Couldn't find a sound with id: %s", name.c_str());
 		return false;
 	}
 

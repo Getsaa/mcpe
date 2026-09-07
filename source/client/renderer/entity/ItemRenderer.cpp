@@ -6,13 +6,14 @@
 	SPDX-License-Identifier: BSD-1-Clause
  ********************************************************************/
 
-#include <sstream>
 #include "ItemRenderer.hpp"
 #include "EntityRenderDispatcher.hpp"
 #include "client/renderer/TileRenderer.hpp"
+#include "client/renderer/renderer/RenderMaterialGroup.hpp"
 #include "world/entity/ItemEntity.hpp"
-
-TileRenderer* ItemRenderer::tileRenderer = new TileRenderer;
+#include "client/renderer/Lighting.hpp"
+#include "client/app/Minecraft.hpp"
+#include "renderer/ShaderConstants.hpp"
 
 #ifndef ENH_3D_INVENTORY_TILES
 const uint8_t g_ItemFrames[C_MAX_TILES] =
@@ -28,117 +29,174 @@ const uint8_t g_ItemFrames[C_MAX_TILES] =
 };
 #endif
 
+ItemRenderer::Materials::Materials()
+{
+	MATERIAL_PTR(switchable, item_entity_item);
+	MATERIAL_PTR(switchable, item_entity_item_layered);
+	MATERIAL_PTR(switchable, item_entity_tile);
+	MATERIAL_PTR(common, ui_fill_color);
+	MATERIAL_PTR(common, ui_fill_gradient);
+	MATERIAL_PTR(common, ui_textured);
+	MATERIAL_PTR(common, ui_texture_and_color);
+	MATERIAL_PTR(common, ui_item);
+	MATERIAL_PTR(common, ui_item_glint);
+}
+
+ItemRenderer* ItemRenderer::singletonPtr = nullptr;
+
+ItemRenderer& ItemRenderer::singleton()
+{
+	if (!ItemRenderer::singletonPtr)
+	{
+		ItemRenderer::singletonPtr = new ItemRenderer();
+	}
+
+	return *singletonPtr;
+}
+
 ItemRenderer::ItemRenderer()
 {
+	static TileRenderer* tileRenderer = new TileRenderer();
+	m_pTileRenderer = tileRenderer;
+
 	m_shadowRadius = 0.15f;
 	m_shadowStrength = 0.75f;
 }
 
-void ItemRenderer::render(Entity* pEntity, float x, float y, float z, float a, float b)
+void ItemRenderer::render(const Entity& entity, const Vec3& pos, float rot, float a)
 {
 	m_random.init_genrand(187);
-	ItemEntity* pItemEntity = (ItemEntity*)pEntity;
+	const ItemEntity& itemEntity = (const ItemEntity&)entity;
 
-	glPushMatrix();
-	float yOffset = Mth::sin((float(pItemEntity->field_E0) + b) / 10.0f + pItemEntity->field_E8);
-	const ItemInstance* pItemInstance = &(pItemEntity->m_itemInstance);
+	MatrixStack::Ref matrix = MatrixStack::World.push();
+
+	float yOffset = Mth::sin((float(itemEntity.m_age) + a) / 10.0f + itemEntity.m_bobOffs);
+	const ItemStack& itemStack = itemEntity.m_itemStack;
+	if (!itemStack.isValid()) // was isEmpty, but we need to render taken items
+		return;
 
 	int itemsToRender = 1;
-	if (pItemInstance->m_count > 1)
+	if (itemStack.m_count > 1)
 		itemsToRender = 2;
-	if (pItemInstance->m_count > 5)
+	if (itemStack.m_count > 5)
 		itemsToRender = 3;
-	if (pItemInstance->m_count > 20)
+	if (itemStack.m_count > 20)
 		itemsToRender = 4;
 
-	glTranslatef(x, y + 0.1f + yOffset * 0.1f, z);
-	glEnable(GL_RESCALE_NORMAL);
+	matrix->translate(Vec3(pos.x, pos.y + 0.1f + yOffset * 0.1f, pos.z));
 
-	int itemID = pItemInstance->m_itemID;
-	if (itemID < C_MAX_TILES && TileRenderer::canRender(Tile::tiles[itemID]->getRenderShape()))
+	Tile* pTile = itemStack.getTile();
+	if (pTile && TileRenderer::canRender(pTile->getRenderShape()))
 	{
-		glRotatef(((float(pItemEntity->field_E0) + b) / 20.0f + pItemEntity->field_E8) * 57.296f, 0.0f, 1.0f, 0.0f);
+		matrix->rotate(((float(itemEntity.m_age) + a) / 20.0f + itemEntity.m_bobOffs) * 57.296f, Vec3::UNIT_Y);
+
 		bindTexture(C_TERRAIN_NAME);
 
 		float scale = 0.5f;
 
 		// @BUG: If cacti existed and were able to be dropped, they would be 2x the size of a regular tile.
 		// This bug has been in the main game until Java Edition Beta 1.8.
-		if (Tile::tiles[itemID]->isCubeShaped() || pItemInstance->m_itemID == Tile::stoneSlabHalf->m_ID)
+		if (pTile->isCubeShaped() || pTile == Tile::stoneSlabHalf)
 			scale = 0.25f;
 
-		glScalef(scale, scale, scale);
+		matrix->scale(scale);
+
+#ifdef FEATURE_GFX_SHADERS
+		Color tileLightColor = Color::WHITE;
+#else
+		float fBrightness = itemEntity.getBrightness(1.0f);
+		Color tileLightColor(fBrightness, fBrightness, fBrightness);
+#endif
 
 		for (int i = 0; i < itemsToRender; i++)
 		{
-			glPushMatrix();
+			MatrixStack::Ref matrix = MatrixStack::World.push();
 			if (i != 0)
 			{
-				glTranslatef(
+				matrix->translate(Vec3(
 					0.2f * (m_random.nextFloat() * 2.0f - 1.0f) / scale,
 					0.2f * (m_random.nextFloat() * 2.0f - 1.0f) / scale,
-					0.2f * (m_random.nextFloat() * 2.0f - 1.0f) / scale);
+					0.2f * (m_random.nextFloat() * 2.0f - 1.0f) / scale));
 			}
 
-			tileRenderer->renderTile(Tile::tiles[itemID], pItemInstance->getAuxValue(), pItemEntity->getBrightness(1.0f));
-			glPopMatrix();
+			m_pTileRenderer->renderTile(FullTile(pTile, itemStack.getAuxValue()), m_itemMaterials.item_entity_tile, tileLightColor);
 		}
 	}
 	else
 	{
-		glScalef(0.5f, 0.5f, 0.5f);
-		int icon = pItemInstance->getIcon();
+		matrix->scale(0.5f);
 
-		bindTexture(pItemInstance->m_itemID < C_MAX_TILES ? C_TERRAIN_NAME : C_ITEMS_NAME);
+		bindTexture(itemStack.getTile() ? C_TERRAIN_NAME : C_ITEMS_NAME);
 
 		for (int i = 0; i < itemsToRender; i++)
 		{
-			glPushMatrix();
+			MatrixStack::Ref matrix = MatrixStack::World.push();
 			if (i != 0)
 			{
-				glTranslatef(
+				matrix->translate(Vec3(
 					0.2f * (m_random.nextFloat() * 2.0f - 1.0f) * 0.3f,
 					0.2f * (m_random.nextFloat() * 2.0f - 1.0f) * 0.3f,
-					0.2f * (m_random.nextFloat() * 2.0f - 1.0f) * 0.3f);
+					0.2f * (m_random.nextFloat() * 2.0f - 1.0f) * 0.3f));
 			}
 
-			glRotatef(180.0f - m_pDispatcher->m_rot.x, 0.0f, 1.0f, 0.0f);
+			matrix->rotate(180.0f - m_pDispatcher->m_rot.yaw, Vec3::UNIT_Y);
 
 			Tesselator& t = Tesselator::instance;
-			t.begin();
+			Item* pItemType = itemStack.getItem();
+			size_t iconLayers = pItemType->getIconLayerCount();
+			bool isMultiLayered = iconLayers > 1;
 
-#ifdef ENH_SHADE_HELD_TILES
-			float bright = pItemEntity->getBrightness(1.0f);
-			t.color(bright, bright, bright);
+			if (isMultiLayered) // we will apply the brightness ourselves via vertex colors
+				currentShaderColor = Color::WHITE;
+
+			// @TODO: this is hacky and inefficient. long-term we should be at least
+			// *trying* to bake layer & color variants into an atlas on runtime
+			t.begin(4 * iconLayers);
+
+			// @NOTE: for whatever reason, batched items need to have their layers rendered in reverse order
+			for (int layer = iconLayers - 1; layer >= 0; layer--)
+			{
+				Color color = pItemType->getColor(&itemStack, layer);
+				int icon = itemStack.getIcon(layer);
+
+#ifndef FEATURE_GFX_SHADERS
+				float fBrightness = itemEntity.getBrightness(1.0f);
+				color.mulRGB(fBrightness);
 #endif
-			t.normal(0.0f, 1.0f, 0.0f);
-			t.vertexUV(-0.5f, -0.25f, 0.0f, float(16 * (icon % 16))     / 256.0f, float(16 * (icon / 16 + 1)) / 256.0f);
-			t.vertexUV(+0.5f, -0.25f, 0.0f, float(16 * (icon % 16 + 1)) / 256.0f, float(16 * (icon / 16 + 1)) / 256.0f);
-			t.vertexUV(+0.5f, +0.75f, 0.0f, float(16 * (icon % 16 + 1)) / 256.0f, float(16 * (icon / 16))     / 256.0f);
-			t.vertexUV(-0.5f, +0.75f, 0.0f, float(16 * (icon % 16))     / 256.0f, float(16 * (icon / 16))     / 256.0f);
 
-			t.draw();
+				if (isMultiLayered)
+				{
+					t.color(color);
+				}
+				else
+				{
+					currentShaderColor = color;
+				}
 
-			glPopMatrix();
+				t.normal(Vec3::UNIT_Y);
+				t.vertexUV(-0.5f, -0.25f, 0.0f, float(16 * (icon % 16)) / 256.0f, float(16 * (icon / 16 + 1)) / 256.0f);
+				t.vertexUV(+0.5f, -0.25f, 0.0f, float(16 * (icon % 16 + 1)) / 256.0f, float(16 * (icon / 16 + 1)) / 256.0f);
+				t.vertexUV(+0.5f, +0.75f, 0.0f, float(16 * (icon % 16 + 1)) / 256.0f, float(16 * (icon / 16)) / 256.0f);
+				t.vertexUV(-0.5f, +0.75f, 0.0f, float(16 * (icon % 16)) / 256.0f, float(16 * (icon / 16)) / 256.0f);
+			}
+            
+			t.draw(isMultiLayered ? m_itemMaterials.item_entity_item_layered : m_itemMaterials.item_entity_item);
 		}
 	}
-
-	glDisable(GL_RESCALE_NORMAL);
-	glPopMatrix();
 }
 
 void ItemRenderer::blitRect(Tesselator& t, int x, int y, int w, int h, int color)
 {
-	t.begin();
+	t.begin(4);
 	t.color(color);
 	t.vertex(float(x),     float(y),     0.0f);
 	t.vertex(float(x),     float(y + h), 0.0f);
 	t.vertex(float(x + w), float(y + h), 0.0f);
 	t.vertex(float(x + w), float(y),     0.0f);
-	t.draw();
+	t.draw(m_itemMaterials.ui_fill_gradient);
 }
 
-void ItemRenderer::blit(int dx, int dy, int sx, int sy, int tw, int th)
+void ItemRenderer::blit(int dx, int dy, int sx, int sy, int tw, int th, const Color& color)
 {
 	Tesselator& t = Tesselator::instance;
 
@@ -146,41 +204,62 @@ void ItemRenderer::blit(int dx, int dy, int sx, int sy, int tw, int th)
 	float uw = float(tw), uh = float(th);
 	float vx = float(sx), vy = float(sy);
 
-	t.begin();
+	t.begin(4);
+	if (color != Color::WHITE)
+		t.color(color);
 	t.vertexUV(ex,      ey + uh, 0.0f, float(vx)      / 256.0f, float(vy + uh) / 256.0f);
 	t.vertexUV(ex + uw, ey + uh, 0.0f, float(vx + uw) / 256.0f, float(vy + uh) / 256.0f);
 	t.vertexUV(ex + uw, ey,      0.0f, float(vx + uw) / 256.0f, float(vy)      / 256.0f);
 	t.vertexUV(ex,      ey,      0.0f, float(vx)      / 256.0f, float(vy)      / 256.0f);
-	t.draw();
+	t.draw(color == Color::WHITE ? m_itemMaterials.ui_textured : m_itemMaterials.ui_texture_and_color);
 }
 
-void ItemRenderer::renderGuiItemOverlay(Font* font, Textures* textures, ItemInstance* instance, int x, int y)
+void ItemRenderer::renderGuiItemOverlay(Minecraft& mc, const ItemStack& item, int x, int y)
 {
-	if (!instance)
+	if (item.isEmpty())
 		return;
 
-	if (instance->m_count == 1)
+	// Draw damage amount
+	if (item.isDamaged())
+	{
+		int duraWidth = ceilf(13.0f - static_cast<float>(item.getDamageValue()) * 13.0f / static_cast<float>(item.getMaxDamage()));
+		int duraPercent = ceilf(255.0f - static_cast<float>(item.getDamageValue()) * 255.0f / static_cast<float>(item.getMaxDamage()));
+
+
+		int duraBgColor = (((255 - duraPercent) / 4) << 16) | 0x3F00;
+		int duraColor = ((255 - duraPercent) << 16) | (duraPercent << 8);
+		
+		Tesselator& t = Tesselator::instance;
+		
+		blitRect(t, x + 2, y + 13, 13, 2, 0);
+		blitRect(t, x + 2, y + 13, 12, 1, duraBgColor);
+		blitRect(t, x + 2, y + 13, duraWidth, 1, duraColor);
+	}
+
+	if (item.m_count <= 1)
+	{
 		return;
+	}
 
-	std::stringstream ss;
-	ss << instance->m_count;
-	std::string amtstr = ss.str();
+	// Draw num items
+	std::string amtstr = Util::toString(item.m_count);
 
-	int width = font->width(amtstr), height = font->height(amtstr) + 8;
+	int width = mc.m_pFont->width(amtstr);
 
-	font->drawShadow(amtstr, x + 17 - width, y + 17 - height, 0xFFFFFF);
+	mc.m_pFont->drawShadow(amtstr, x + 17 - width, y + 6 + 3, 0xFFFFFF);
 }
 
-void ItemRenderer::renderGuiItem(Font* font, Textures* textures, ItemInstance* instance, int x, int y, bool b)
+void ItemRenderer::renderGuiItem(Minecraft& mc, const ItemStack& item, int x, int y, const Color& color)
 {
 	// @NOTE: Font unused but would presumably be used to draw the item amount.
 	// As if that actually works due to us blocking t.begin() and t.draw() calls...
-	if (!instance)
+	if (item.isEmpty() || !item.isValid())
 		return;
 
-	int itemID = instance->m_itemID;
-	if (!b)
-		return;
+	Textures& textures = *mc.m_pTextures;
+
+	//Item* pItem = item->getItem();
+	Tile* pTile = item.getTile();
 
 	// @BUG: This is one of the reasons you can't actually hold items in early Minecraft.
 	// There's an attempt to index `Tile::tiles` out of bounds, which of course fails, and likely crashes the game. :(
@@ -188,76 +267,100 @@ void ItemRenderer::renderGuiItem(Font* font, Textures* textures, ItemInstance* i
 #ifdef ORIGINAL_CODE
 #define COND_PRE
 #else
-#define COND_PRE (0 <= itemID && itemID < C_MAX_TILES) && 
+#define COND_PRE pTile && 
 #endif
 
 	bool bCanRenderAsIs = false;
 
 #ifdef ENH_3D_INVENTORY_TILES
 	// We don't need to care about g_ItemFrames at all since blocks will get 3D rendered and 2D props will use the terrain.png as the texture.
-	if (COND_PRE(TileRenderer::canRender(Tile::tiles[itemID]->getRenderShape())))
+	if (COND_PRE(TileRenderer::canRender(pTile->getRenderShape())))
 	{
 		bCanRenderAsIs = true;
 	}
 #else
-	if (COND_PRE(TileRenderer::canRender(Tile::tiles[itemID]->getRenderShape()) || g_ItemFrames[itemID] != 0))
+	if (COND_PRE(TileRenderer::canRender(pTile->getRenderShape()) || g_ItemFrames[item.getId()] != 0))
 	{
 		bCanRenderAsIs = true;
 	}
 #endif
 	
-	if (itemID < C_MAX_TILES && bCanRenderAsIs)
+	if (pTile && bCanRenderAsIs)
 	{
 #ifndef ENH_3D_INVENTORY_TILES
-		textures->loadAndBindTexture(C_BLOCKS_NAME);
+		textures.loadAndBindTexture(C_BLOCKS_NAME);
 
-		float texU = float(g_ItemFrames[instance->m_itemID] % 10) * 48.0f;
-		float texV = float(g_ItemFrames[instance->m_itemID] / 10) * 48.0f;
+		float texU = float(g_ItemFrames[item.getId()] % 10) * 48.0f;
+		float texV = float(g_ItemFrames[item.getId()] / 10) * 48.0f;
 
 		Tesselator& t = Tesselator::instance;
 		// @NOTE: These do nothing, due to a previous t.voidBeginAndEndCalls call.
-		t.begin();
+		t.begin(4);
 		t.vertexUV(float(x +  0), float(y + 16), 0.0f,  texU          / 512.0f, (texV + 48.0f) / 512.0f);
 		t.vertexUV(float(x + 16), float(y + 16), 0.0f, (texU + 48.0f) / 512.0f, (texV + 48.0f) / 512.0f);
 		t.vertexUV(float(x + 16), float(y +  0), 0.0f, (texU + 48.0f) / 512.0f,  texV          / 512.0f);
 		t.vertexUV(float(x +  0), float(y +  0), 0.0f,  texU          / 512.0f,  texV          / 512.0f);
-		t.draw();
+		t.draw(m_itemMaterials.ui_textured);
 #else
-		textures->loadAndBindTexture(C_TERRAIN_NAME);
 
-		//glDisable(GL_BLEND);
-		//glEnable(GL_DEPTH_TEST);
+		textures.loadAndBindTexture(C_TERRAIN_NAME);
 
-		glPushMatrix();
+		MatrixStack::Ref matrix = MatrixStack::World.push();
 
 		// scale, rotate, and translate the tile onto the correct screen coordinate
-		glTranslatef((GLfloat)x + 8, (GLfloat)y + 8, -8);
-		glScalef(10, 10, 10);
-		glRotatef(210.0f, 1.0f, 0.0f, 0.0f);
-		glRotatef(45.0f, 0.0f, 1.0f, 0.0f);
+		if (mc.getUiTheme() == UI_CONSOLE)
+		{
+			Lighting::turnOnConsoleUiItems();
+			m_pTileRenderer->setLightingPreset(TileRenderer::LIGHTING_PRESET_CONSOLE); // for baked lighting
+			matrix->translate(Vec3(x, y, 0));
+			matrix->scale(16);
+			matrix->translate(Vec3(0.5f, 0.5f, 0.0f));
+			matrix->scale(Vec3(0.55f, 0.55f, -1.0f));
+		}
+		else
+		{
+			Lighting::turnOnItems();
+			matrix->translate(Vec3(x - 2, y + 3, 0));
+			matrix->scale(10);
+			matrix->translate(Vec3(1.0f, 0.5f, 1.0f));
+			matrix->scale(Vec3(1.0f, 1.0f, -1.0f));
+		}
+		matrix->rotate(210.0f, Vec3::UNIT_X);
+		matrix->rotate(45.0f, Vec3::UNIT_Y);
+		matrix->rotate(-90.0f, Vec3::UNIT_Y);
 
-		// TODO: Why can't we rotate stairs 90deg also? What's rotating them!?
-		if (Tile::tiles[itemID]->getRenderShape() != SHAPE_STAIRS)
-			glRotatef(-90.0f, 0.0f, 1.0f, 0.0f);
+#ifdef FEATURE_GFX_SHADERS
+		bool preshade = true;
+#else
+		bool preshade = false;
+#endif
 		
-		tileRenderer->renderTile(Tile::tiles[itemID], instance->getAuxValue(), 1.0f, true);
+		m_pTileRenderer->renderTile(FullTile(pTile, item.getAuxValue()), m_itemMaterials.ui_item, color, preshade);
+
+		Lighting::turnOff();
+		m_pTileRenderer->setLightingPreset(TileRenderer::LIGHTING_PRESET_JAVA);
 		#undef PARM_HACK
-
-		glPopMatrix();
-
-		//glDisable(GL_DEPTH_TEST);
-		//glEnable(GL_BLEND);
 #endif
 	}
-	else if (instance->getIcon() >= 0)
+	else if (item.getIcon() >= 0)
 	{
 		// @BUG: The last bound texture will be the texture that ALL items will take. This is because begin and end calls
 		// have been void'ed by a  t.voidBeginAndEndCalls call in Gui::render.
-		if (instance->m_itemID <= 255)
-			textures->loadAndBindTexture(C_TERRAIN_NAME);
+		if (item.getTile())
+			textures.loadAndBindTexture(C_TERRAIN_NAME);
 		else
-			textures->loadAndBindTexture(C_ITEMS_NAME);
+			textures.loadAndBindTexture(C_ITEMS_NAME);
 
-		blit(x, y, 16 * (instance->getIcon() % 16), 16 * (instance->getIcon() / 16), 16, 16);
+		Item*  pItemType  = item.getItem();
+		size_t iconLayers = pItemType->getIconLayerCount();
+
+		// @TODO: this is hacky and inefficient. long-term we should be at least
+		// *trying* to bake layer & color variants into an atlas on runtime
+		for (int layer = 0; layer < (int)iconLayers; layer++)
+		{
+			int itemIcon = item.getIcon(layer);
+			Color itemColor = pItemType->getColor(&item, layer);
+			blit(x, y, 16 * (itemIcon % 16), 16 * (itemIcon / 16), 16, 16, color * itemColor);
+		}
 	}
 }

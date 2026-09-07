@@ -9,15 +9,17 @@
 #pragma once
 
 #include "../Screen.hpp"
+#include "client/gui/components/Button.hpp"
 
 class PauseScreen : public Screen
 {
 public:
 	PauseScreen();
-	virtual void init() override;
-	virtual void tick() override;
-	virtual void render(int a, int b, float c) override;
-	virtual void buttonClicked(Button*) override;
+	void init() override;
+	void tick() override;
+	void render(float f) override;
+	void _buttonClicked(Button*) override;
+	bool validate(Minecraft*) override;
 	
 	void updateServerVisibilityText();
 

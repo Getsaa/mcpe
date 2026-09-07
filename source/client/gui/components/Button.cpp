@@ -7,113 +7,158 @@
  ********************************************************************/
 
 #include "Button.hpp"
+#include "renderer/ShaderConstants.hpp"
 
 void Button::_init()
 {
-	m_width = 0;
-	m_height = 0;
-	m_xPos = 0;
-	m_yPos = 0;
-	m_text = "";
-	m_bEnabled = true;
-	m_bVisible = true;
-	field_36 = false;
+	m_color = Color::WHITE;
 
 #ifndef ORIGINAL_CODE
 	m_lastX = 0;
 	m_lastY = 0;
 #endif
+
+	m_bHasSound = true;
 }
 
-Button::Button(int buttonId, int xPos, int yPos, int btnWidth, int btnHeight, const std::string& text)
+void Button::_renderBg(Minecraft* mc, const MenuPointer& pointer)
+{
+	int iYPos = 20 * getYImage(isSelected()) + 46;
+	mc->m_pTextures->loadAndBindTexture("gui/gui.png");
+	blit(m_xPos, m_yPos, 0, iYPos, m_width / 2, m_height, 0, 20, &m_materials.ui_textured_and_glcolor);
+	blit(m_xPos + m_width / 2, m_yPos, 200 - m_width / 2, iYPos, m_width / 2, m_height, 0, 20, &m_materials.ui_textured_and_glcolor);
+}
+
+void Button::_renderBgPocket(Minecraft* mc, const MenuPointer& pointer)
+{
+	int iXPos = isSelected() ? 66 : 0;
+	currentShaderColor = isEnabled() ? Color::WHITE : Color::GREY;
+	blitNineSlice(*mc->m_pTextures, TextureAtlasSprite(iXPos, 0, 66, 26, "gui/touchgui.png", 256, 256), m_xPos, m_yPos, m_width, m_height, 3, &m_materials.ui_textured_and_glcolor);
+}
+
+void Button::_renderBgConsole(Minecraft* mc, const MenuPointer& pointer)
+{
+	Textures& texs = *mc->m_pTextures;
+
+	if (!isEnabled())
+		currentShaderColor.a *= 0.5f; // Not translucent on TU2.
+
+	blitSprite(texs, isSelected() && !hasFocus() ? "gui/console/Graphics/MainMenuButton_Over.png" : "gui/console/Graphics/MainMenuButton_Norm.png", m_xPos, m_yPos, m_width, m_height, &m_materials.ui_textured_and_glcolor);
+	if (hasFocus())
+	{
+		float timer = (getTimeMs() % 1200) / 1200.0f;
+		currentShaderColor.a *= 0.5f + (timer >= 0.5f ? 1 - timer : timer);
+		blitSprite(texs, "gui/console/Graphics/MainMenuButton_Over.png", m_xPos, m_yPos, m_width, m_height, &m_materials.ui_textured_and_glcolor);
+	}
+	currentShaderColor = m_color;
+}
+
+void Button::_renderMessage(Font& font)
+{
+	Color textColor;
+	if (!isEnabled())
+		textColor = Color(160, 160, 160, m_color.a); // 0xFFA0A0A0
+	else if (isSelected())
+		textColor = Color(255, 255, 160, m_color.a); // 0xFFFFA0U
+	else
+		textColor = Color(224, 224, 224, m_color.a); // 0xE0E0E0U
+	drawCenteredString(font, getMessage(), m_xPos + m_width / 2, m_yPos + (m_height - 8) / 2, textColor);
+}
+
+void Button::_renderMessageConsole(Font& font)
+{
+	Color textColor;
+	if (hasFocus())
+	{
+		float timer = (getTimeMs() % 1200) / 1200.0f;
+		textColor = Color(220, 220, Mth::round((0.5f - (timer >= 0.5f ? 1 - timer : timer)) * 220));
+	}
+	else if (isSelected())
+	{
+		textColor = Color(220, 220, 0); // 0xDCDC00
+	}
+	else
+		textColor = Color(224, 224, 224); // 0xE0E0E0U
+
+	if (!isEnabled())
+		textColor.a *= 0.5f;
+//		textColor = Color(167, 167, 167); // @PARITY-LCE: In TU2 the text is colored gray instead of having reduced transparency.
+
+	int textWidth = font.width(getMessage()) * 2;
+	font.drawScalableShadow(getMessage(), m_xPos + (m_width - textWidth) / 2, m_yPos + (m_height - 16) / 2, textColor);
+}
+
+Button::Button(int x, int y, int width, int height, const std::string& text)
 {
 	_init();
 
-	m_buttonId = buttonId;
-	m_xPos = xPos;
-	m_yPos = yPos;
-	m_text = text;
-	m_width  = btnWidth;
-	m_height = btnHeight;
+	m_xPos = x;
+	m_yPos = y;
+	setMessage(text);
+	m_width  = width;
+	m_height = height;
 }
 
-Button::Button(int buttonId, int xPos, int yPos, const std::string& text)
+Button::Button(int x, int y, const std::string& text)
 {
 	_init();
 
-	m_buttonId = buttonId;
-	m_xPos = xPos;
-	m_yPos = yPos;
-	m_text = text;
+	m_xPos = x;
+	m_yPos = y;
+	setMessage(text);
 	m_width  = 200;
 	m_height = 24;
 }
 
-Button::Button(int buttonId, const std::string& text)
+Button::Button(const std::string& text)
 {
 	_init();
 
-	m_buttonId = buttonId;
-	m_text = text;
+	setMessage(text);
 	m_width  = 200;
 	m_height = 24;
-}
-
-bool Button::clicked(Minecraft* pMinecraft, int xPos, int yPos)
-{
-	if (!m_bEnabled) return false;
-	if (xPos < m_xPos) return false;
-	if (yPos < m_yPos) return false;
-	if (xPos >= m_xPos + m_width) return false;
-	if (yPos >= m_yPos + m_height) return false;
-
-	return true;
 }
 
 int Button::getYImage(bool bHovered)
 {
-	if (!m_bEnabled) return 0;
+	if (!isEnabled()) return 0;
 	if (bHovered) return 2;
 	return 1;
 }
 
-void Button::released(int xPos, int yPos)
+void Button::renderBg(Minecraft* pMinecraft, const MenuPointer& pointer)
 {
-
+	switch (m_uiTheme)
+	{
+	case UI_POCKET:
+		_renderBgPocket(pMinecraft, pointer);
+		break;
+	case UI_CONSOLE:
+		_renderBgConsole(pMinecraft, pointer);
+		break;
+	default:
+		_renderBg(pMinecraft, pointer);
+		break;
+	}
 }
 
-void Button::renderBg(Minecraft*, int, int)
+void Button::render(Minecraft* pMinecraft, const MenuPointer& pointer)
 {
+	if (!isVisible()) return;
 
-}
+	if (!pMinecraft->m_pScreen->doElementTabbing())
+		setSelected(isHovered(pMinecraft, pointer));
 
-void Button::render(Minecraft* pMinecraft, int xPos, int yPos)
-{
-	if (!m_bVisible) return;
+	if (m_color.a == 0.0f)
+		return;
 
-	if (!pMinecraft->useController())
-		field_36 = clicked(pMinecraft, xPos, yPos);
+	currentShaderColor = m_color;
+	renderBg(pMinecraft, pointer);
 
-	Font* pFont = pMinecraft->m_pFont;
-	Textures* pTexs = pMinecraft->m_pTextures;
+	Font& font = *pMinecraft->m_pFont;
 
-	pTexs->loadAndBindTexture("gui/gui.png");
-
-	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-	int iYPos = 20 * getYImage(field_36) + 46;
-
-	blit(m_xPos, m_yPos, 0, iYPos, m_width / 2, m_height, 0, 20);
-	blit(m_xPos + m_width / 2, m_yPos, 200 - m_width / 2, iYPos, m_width / 2, m_height, 0, 20);
-
-	renderBg(pMinecraft, xPos, yPos);
-
-	int textColor;
-	if (!m_bEnabled)
-		textColor = int(0xFFA0A0A0U);
-	else if (field_36)
-		textColor = int(0xFFFFA0U);
+	if (m_uiTheme == UI_CONSOLE)
+		_renderMessageConsole(font);
 	else
-		textColor = int(0xE0E0E0U);
-
-	drawCenteredString(pFont, m_text, m_xPos + m_width / 2, m_yPos + (m_height - 8) / 2, textColor);
+		_renderMessage(font);
 }

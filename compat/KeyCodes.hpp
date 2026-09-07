@@ -8,23 +8,26 @@
 
 #pragma once
 
+#include "compat/PlatformDefinitions.h"
+
 #ifdef USE_SDL
-#include "../thirdparty/SDL2/SDL2.h"
+    #include "thirdparty/SDL/SDL.h"
 
-// because SDL sucks and makes no sense and sets bit 1<<30 for some keycodes for some godamn reason
-enum eSDLVirtualKeys
-{
-	#define CODE(x) SDLVK_ ## x,
-	#include "SDLKeyCodes.h"
-	#undef  CODE
-};
-
+    // because SDL sucks and makes no sense and sets bit 1<<30 for some keycodes for some godamn reason
+    enum eSDLVirtualKeys
+    {
+        #define CODE(x) SDLVK_ ## x,
+        #define _CODE(x) SDLVK_ ## x
+        #include "SDLKeyCodes.h"
+        #undef  CODE
+        #undef  _CODE
+    };
 #endif
 
-#ifdef _WIN32
+#if MC_PLATFORM_WINPC
     #define WIN32_LEAN_AND_MEAN
-    #include <Windows.h>
-#elif __APPLE__
+    #include <windows.h>
+#elif defined(__APPLE__) && !defined(USE_SDL)
     // https://i.stack.imgur.com/LD8pT.png
     #define AKEYCODE_FORWARD_DEL 0x75
     #define AKEYCODE_ARROW_LEFT  0x7B

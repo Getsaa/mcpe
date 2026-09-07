@@ -11,7 +11,8 @@
 
 IInputHolder::IInputHolder() :
 	m_feedbackX(0),
-	m_feedbackY(0)
+	m_feedbackY(0),
+	m_feedbackAlpha(0)
 {
 }
 
@@ -23,7 +24,7 @@ bool IInputHolder::allowPicking()
 {
 	m_feedbackX = float(Mouse::getX());
 	m_feedbackY = float(Mouse::getY());
-	return Mouse::getButtonState(BUTTON_LEFT);
+	return Mouse::getButtonState(MOUSE_BUTTON_LEFT);
 }
 
 void IInputHolder::setScreenSize(int width, int height)
@@ -31,4 +32,9 @@ void IInputHolder::setScreenSize(int width, int height)
 	getMoveInput()->setScreenSize(width, height);
 	getTurnInput()->setScreenSize(width, height);
 	getBuildInput()->setScreenSize(width, height);
+}
+
+bool IInputHolder::allowsInputMethod(InputMethod::Type type) const
+{
+	return type == InputMethod::KEYBOARD || type == InputMethod::MOUSE;
 }

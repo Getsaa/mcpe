@@ -17,14 +17,14 @@ class FakeRocketTile : public Tile
 {
 public:
 	FakeRocketTile();
-	int getRenderShape() const override;
+	eRenderShape getRenderShape() const override;
 };
 
 class RocketRenderer : public EntityRenderer
 {
 public:
 	RocketRenderer();
-	void render(Entity*, float, float, float, float, float) override;
+	void render(const Entity& entity, const Vec3& pos, float rot, float a) override;
 
 public:
 	TileRenderer m_renderer;

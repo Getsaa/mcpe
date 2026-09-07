@@ -14,9 +14,11 @@ class TileItem : public Item
 public:
 	TileItem(int id);
 
-	virtual std::string getDescriptionId();
-	virtual std::string getDescriptionId(ItemInstance*);
-	virtual bool useOn(ItemInstance*, Player*, Level*, const TilePos& pos, Facing::Name face);
+public:
+	std::string getDescriptionId() const override;
+	std::string getDescriptionId(ItemStack&) const override;
+	bool useOn(ItemStack&, Player&, const TilePos& pos, Facing::Name face) const override;
+	Color getColor(const ItemStack* itemStack = nullptr, int layer = 0) const override;
 
 public:
 	int m_tile;

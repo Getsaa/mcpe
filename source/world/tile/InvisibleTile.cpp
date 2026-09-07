@@ -9,13 +9,13 @@
 #include "InvisibleTile.hpp"
 #include "world/level/Level.hpp"
 
-InvisibleTile::InvisibleTile(int ID, int texture, Material* pMtl) :
+InvisibleTile::InvisibleTile(TileID ID, int texture, Material* pMtl) :
 	Tile(ID, texture, pMtl)
 {
 
 }
 
-int InvisibleTile::getRenderShape() const
+eRenderShape InvisibleTile::getRenderShape() const
 {
 	return SHAPE_NONE;
 }

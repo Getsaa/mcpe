@@ -8,27 +8,38 @@
 
 // note: not an official file name
 
-#include "common/Utils.hpp"
-#include "compat/PlatformDefinitions.h"
+#include "Utils.hpp"
 
-#if defined(_WIN32) && !defined(_XBOX)
+#include <cstring>
+#include <stack>
 
-#define WIN32_LEAN_AND_MEAN
-#include <Windows.h>
-#include <io.h>
-#include <direct.h>
+#if MC_PLATFORM_WINPC
+
+#include <winsock.h>
 
 // Why are we not using GetTickCount64()? It's simple -- getTimeMs has the exact same problem as using regular old GetTickCount.
+#ifdef _MSC_VER
 #pragma warning(disable : 28159)
+#endif
 
-#elif defined(_XBOX)
+#elif MC_SDK_XDK
 
 #else
 
 #include <sys/time.h>
 #include <unistd.h>
-#include <sys/stat.h>
 
+#endif
+
+#include <sys/stat.h>
+#ifdef _MSC_VER
+#define stat _stat
+#define S_ISREG(m) (m & _S_IFREG)
+#endif
+
+#ifdef XENON
+// needed for udelay in sleepMs
+#include <time/time.h>
 #endif
 
 // include zlib stuff
@@ -37,7 +48,56 @@
 
 int g_TimeSecondsOnInit = 0;
 
-#if (!defined(USE_SDL) || defined(_WIN32)) && !defined(ANDROID) && !MC_PLATFORM_MAC
+#ifdef _WIN32
+
+#ifdef __CRTDLL__
+
+static CRITICAL_SECTION g_gmtime_s_lock;
+static LONG g_gmtime_s_lock_state = 0;
+
+errno_t gmtime_s(struct tm* out, const time_t* timer)
+{
+    struct tm* tmp;
+
+    if (!out || !timer)
+        return EINVAL;
+
+    LONG state = InterlockedCompareExchange(&g_gmtime_s_lock_state, 1, 0);
+
+    if (state == 0) {
+        InitializeCriticalSection(&g_gmtime_s_lock);
+        InterlockedExchange(&g_gmtime_s_lock_state, 2);
+    } else {
+        while (InterlockedCompareExchange(&g_gmtime_s_lock_state, 2, 2) != 2)
+            Sleep(0);
+    }
+
+    EnterCriticalSection(&g_gmtime_s_lock);
+
+    tmp = gmtime(timer);
+    if (tmp)
+        *out = *tmp;
+
+    LeaveCriticalSection(&g_gmtime_s_lock);
+
+    return tmp ? 0 : EINVAL;
+}
+
+#endif // __CRTDLL__
+
+void toDosPath(char* path)
+{
+    if (path == NULL) return;
+
+    while (*path != '\0')
+	{
+        if (*path == '/')
+		{
+            *path = '\\';
+        }
+        path++;
+    }
+}
 
 DIR* opendir(const char* name)
 {
@@ -122,10 +182,35 @@ void closedir(DIR* dir)
 
 bool createFolderIfNotExists(const char* pDir)
 {
-	if (!XPL_ACCESS(pDir, 0))
+	if (XPL_ACCESS(pDir, 0) == 0)
 		return true;
+	size_t pathlen = strlen(pDir);
+	std::stack<std::string> st;
 
-	return XPL_MKDIR(pDir, 0755) == 0;
+	for (size_t i = pathlen - 1; i > 0; --i)
+	{
+		if (pDir[i] == '/'
+#ifdef _WIN32
+				|| pDir[i] == '\\'
+#endif
+		   )
+		{
+			std::string path(pDir, i);
+			if (XPL_ACCESS(path.c_str(), 0) == 0)
+				break;
+			st.push(path);
+		}
+	}
+	while (!st.empty())
+	{
+		if (XPL_MKDIR(st.top().c_str(), 0755) != 0)
+			return false;
+		st.pop();
+	}
+
+	if (XPL_MKDIR(pDir, 0755) != 0)
+		return false;
+	return true;
 }
 
 bool DeleteDirectory(const std::string& name2, bool unused)
@@ -157,25 +242,26 @@ bool DeleteDirectory(const std::string& name2, bool unused)
 	closedir(dir);
 
 #ifdef _WIN32
-	return RemoveDirectoryA(name.c_str());
+	return RemoveDirectoryA(name.c_str()) != 0;
 #else
 	return remove(name.c_str()) == 0;
 #endif
 }
 
-const char* GetTerrainName()
+bool isRegularFile(const char *path)
 {
-	return "terrain.png";
+	struct stat st;
+	if (stat(path, &st) == 0 && S_ISREG(st.st_mode))
+		return true;
+	return false;
 }
 
-const char* GetItemsName()
+bool isDirectory(const char *path)
 {
-	return "gui/items.png";
-}
-
-const char* GetGUIBlocksName()
-{
-	return "gui/gui_blocks.png";
+	struct stat st;
+	if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
+		return true;
+	return false;
 }
 
 #ifdef _WIN32
@@ -276,93 +362,45 @@ time_t getEpochTimeS()
 	return time(0);
 }
 
-#ifdef _WIN32
-
-HINSTANCE g_hInstance = NULL;
-HWND g_hWnd = NULL;
-
-void SetInstance(HINSTANCE hinst)
-{
-	g_hInstance = hinst;
-}
-
-HINSTANCE GetInstance()
-{
-	return g_hInstance;
-}
-
-void SetHWND(HWND hwnd)
-{
-	g_hWnd = hwnd;
-}
-
-HWND GetHWND()
-{
-	return g_hWnd;
-}
-
-void CenterWindow(HWND hWnd)
-{
-	RECT r, desk;
-	GetWindowRect(hWnd, &r);
-	GetWindowRect(GetDesktopWindow(), &desk);
-
-	int wa, ha, wb, hb;
-
-	wa = (r.right - r.left) / 2;
-	ha = (r.bottom - r.top) / 2;
-
-	wb = (desk.right - desk.left) / 2;
-	hb = (desk.bottom - desk.top) / 2;
-
-	SetWindowPos(hWnd, NULL, wb - wa, hb - ha, r.right - r.left, r.bottom - r.top, 0);
-}
-
-void EnableOpenGL(HWND hwnd, HDC* hDC, HGLRC* hRC)
-{
-	PIXELFORMATDESCRIPTOR pfd;
-
-	int iFormat;
-
-	/* get the device context (DC) */
-	*hDC = GetDC(hwnd);
-
-	/* set the pixel format for the DC */
-	ZeroMemory(&pfd, sizeof(pfd));
-
-	pfd.nSize = sizeof(pfd);
-	pfd.nVersion = 1;
-	pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
-	pfd.iPixelType = PFD_TYPE_RGBA;
-	pfd.cColorBits = 24;
-	pfd.cDepthBits = 8;
-	pfd.iLayerType = PFD_MAIN_PLANE;
-
-	iFormat = ChoosePixelFormat(*hDC, &pfd);
-
-	SetPixelFormat(*hDC, iFormat, &pfd);
-
-	/* create and enable the render context (RC) */
-	*hRC = wglCreateContext(*hDC);
-
-	wglMakeCurrent(*hDC, *hRC);
-}
-
-void DisableOpenGL(HWND hwnd, HDC hDC, HGLRC hRC)
-{
-	wglMakeCurrent(NULL, NULL);
-	wglDeleteContext(hRC);
-	ReleaseDC(hwnd, hDC);
-}
-
-#endif
-
 void sleepMs(int ms)
 {
 #ifdef _WIN32
 	Sleep(ms);
+#elif defined(XENON)
+	udelay(1000 * ms);
 #else
 	usleep(1000 * ms);
+#endif
+}
+
+int32_t getUniqueSeed()
+{
+	// PowerPC-specific compiler-intrinsic, only using on 360 for now, but might work on Xcode or something
+#if MC_PLATFORM_XBOX360
+	return __mftb32();
+#else
+#ifdef _WIN32
+	{
+		LARGE_INTEGER liTime;
+		if (QueryPerformanceCounter(&liTime))
+		{
+#if MC_ENDIANNESS_BIG
+			return liTime.HighPart;
+#else // MC_ENDIANNESS_LITTLE
+			return liTime.LowPart;
+#endif
+		}
+	}
+#endif
+
+	// Variant implemented by Mojang. This does not work on MSVC.
+	{
+		timeval tv;
+
+		gettimeofday(&tv, NULL);
+
+		return tv.tv_usec;
+	}
 #endif
 }
 

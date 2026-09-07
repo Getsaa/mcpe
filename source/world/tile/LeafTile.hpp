@@ -13,18 +13,33 @@
 class LeafTile : public TransparentTile
 {
 public:
-	LeafTile(int id);
+	static const Color DEFAULT_COLOR;
+
+public:
+	LeafTile(TileID id);
 	~LeafTile();
 
-	int getColor(const LevelSource*, const TilePos& pos) const override;
-	int getTexture(Facing::Name face, int data) const override;
+private:
+	void _tickDecayOld(TileSource& source, const TilePos& pos); // circa 0.1.0
+	void _tickDecay(TileSource& source, const TilePos& pos); /// circa b1.7.3
+
+public:
+	Color getColor(TileSource&, const TilePos& pos) const override;
+	Color getColor(Facing::Name face, TileData data) const override;
+	int getTexture(Facing::Name face, TileData data) const override;
 	bool isSolidRender() const override;
-	void onRemove(Level*, const TilePos& pos) override;
-	void stepOn(Level*, const TilePos& pos, Entity*) override;
-	void tick(Level*, const TilePos& pos, Random*) override;
+	void onRemove(TileSource&, const TilePos& pos) override;
+	void stepOn(TileSource&, const TilePos& pos, Entity*) override;
+	void tick(TileSource&, const TilePos& pos, Random*) override;
+	int getResource(TileData data, Random* random) const override;
+	int getSpawnResourcesAuxValue(int x) const override;
 
-	void die(Level*, const TilePos& pos);
+	void die(TileSource&, const TilePos& pos);
+	
+	static bool isDeepLeafTile(TileSource&, const TilePos&);
 
-	int* field_70;
+public:
+	int* m_checkBuffer;
 	int field_74;
+	bool m_bBiomeColors;
 };

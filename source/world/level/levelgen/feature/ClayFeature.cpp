@@ -8,16 +8,17 @@
 
 #include "Feature.hpp"
 #include "world/level/Level.hpp"
+#include "world/level/TileSource.hpp"
 
-ClayFeature::ClayFeature(int id, int count)
+ClayFeature::ClayFeature(TileID id, int count)
 {
     m_ID = id;
     m_count = count;
 }
 
-bool ClayFeature::place(Level* level, Random* random, const TilePos& pos)
+bool ClayFeature::place(TileSource& source, Random* random, const TilePos& pos)
 {
-    if (level->getMaterial(pos) != Material::water)
+    if (source.getMaterial(pos) != Material::water)
     {
         return false;
     }
@@ -28,7 +29,7 @@ bool ClayFeature::place(Level* level, Random* random, const TilePos& pos)
 
     float d0 = float(pos.x + 8) + 0.125f * float(m_count) * Mth::sin(fAng);
     float d1 = float(pos.x + 8) - 0.125f * float(m_count) * Mth::sin(fAng);
-    float d2 = float(pos.z + 8) - 0.125f * float(m_count) * Mth::cos(fAng);
+    float d2 = float(pos.z + 8) + 0.125f * float(m_count) * Mth::cos(fAng);
     float d3 = float(pos.z + 8) - 0.125f * float(m_count) * Mth::cos(fAng);
 
     float d4 = float(pos.y + random->nextInt(3) + 2);
@@ -66,8 +67,8 @@ bool ClayFeature::place(Level* level, Random* random, const TilePos& pos)
                     if (d12 * d12 + d13 * d13 + d14 * d14 >= 1.0f)
                         continue;
 
-                    if (level->getTile(tp) == Tile::sand->m_ID)
-                        level->setTileNoUpdate(tp, m_ID);
+                    if (source.getTile(tp) == Tile::sand->m_ID)
+                        source.setTileAndData(tp, FullTile(m_ID, 0), TileChange::UPDATE_LISTENERS);
                 }
             }
         }
